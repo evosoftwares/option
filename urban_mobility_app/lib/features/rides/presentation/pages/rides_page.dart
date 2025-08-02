@@ -1,6 +1,28 @@
+////
+/// Página de Corridas (Rides)
+///
+/// Propósito:
+/// - Gerenciar visualização de corridas ativas e histórico, além de criar nova corrida.
+///
+/// Camadas/Dependências:
+/// - Presentation da feature Rides. Sem dependências de domínio no momento.
+///
+/// Responsabilidades:
+/// - Controle de abas (ativas/histórico).
+/// - Exibir cartões de corridas com ações básicas.
+///
+/// Pontos de extensão:
+/// - Integração com estado real (streams de corridas).
+/// - Ações de ligar/mensagem e aceite/recusa com backend.
+///
+/// Notas:
+/// - Usa TabController com SingleTickerProviderStateMixin.
+///
 import 'package:flutter/material.dart';
 
+/// Página principal de corridas com abas.
 class RidesPage extends StatefulWidget {
+  /// Construtor padrão.
   const RidesPage({super.key});
 
   @override
@@ -14,7 +36,7 @@ class _RidesPageState extends State<RidesPage>
   @override
   void initState() {
     super.initState();
-    // Removido a aba Favoritos: length de 3 -> 2
+    // Controle de abas: duas seções (Ativas e Histórico).
     _tabController = TabController(length: 2, vsync: this);
   }
 
@@ -40,6 +62,7 @@ class _RidesPageState extends State<RidesPage>
         controller: _tabController,
         children: [_buildActiveRidesTab(), _buildHistoryTab()],
       ),
+      // Ação principal para criação de uma nova corrida (mock).
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showRequestRideDialog(),
         backgroundColor: Theme.of(context).primaryColor,
@@ -52,6 +75,7 @@ class _RidesPageState extends State<RidesPage>
     );
   }
 
+  /// Aba de corridas ativas com cards de status e ações.
   Widget _buildActiveRidesTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -99,6 +123,7 @@ class _RidesPageState extends State<RidesPage>
     );
   }
 
+  /// Aba de histórico de corridas com cards resumidos.
   Widget _buildHistoryTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -144,6 +169,8 @@ class _RidesPageState extends State<RidesPage>
 
   // Aba "Favoritos" e conteúdo removidos conforme solicitação.
 
+  /// Card para corrida ativa.
+  /// Parâmetros: [driverName], [carModel], [plate], [price], [status], [estimatedTime], [rating].
   Widget _buildActiveRideCard({
     required String driverName,
     required String carModel,
@@ -249,6 +276,7 @@ class _RidesPageState extends State<RidesPage>
     );
   }
 
+  /// Card de oferta recebida de motorista com preço e estimativa.
   Widget _buildOfferCard({
     required String driverName,
     required String carModel,
@@ -339,6 +367,7 @@ class _RidesPageState extends State<RidesPage>
     );
   }
 
+  /// Card de histórico de corrida finalizada.
   Widget _buildHistoryCard({
     required String date,
     required String from,
@@ -410,6 +439,9 @@ class _RidesPageState extends State<RidesPage>
 
   // Cards de "Rotas Favoritas" removidos.
 
+  /// Exibe diálogo para solicitar nova corrida.
+  /// Parâmetros opcionais para preencher campos: [prefilledFrom], [prefilledTo].
+  /// Efeitos colaterais: exibe SnackBar ao confirmar.
   void _showRequestRideDialog({String? prefilledFrom, String? prefilledTo}) {
     showDialog(
       context: context,

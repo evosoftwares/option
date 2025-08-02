@@ -1,6 +1,28 @@
+////
+/// Página de Transporte Público
+///
+/// Propósito:
+/// - Exibir informações e busca para ônibus, metrô e bikes compartilhadas.
+///
+/// Camadas/Dependências:
+/// - Presentation da feature Transport. Sem serviços externos conectados.
+///
+/// Responsabilidades:
+/// - Controle de abas para modais de transporte.
+/// - Listas de itens mockadas com cards informativos.
+///
+/// Pontos de extensão:
+/// - Integração com APIs de transporte (horários em tempo real).
+/// - Favoritos persistentes.
+///
+/// Notas:
+/// - Usa TabController com 3 abas.
+///
 import 'package:flutter/material.dart';
 
+/// Página principal do módulo de transporte.
 class TransportPage extends StatefulWidget {
+  /// Construtor padrão.
   const TransportPage({super.key});
 
   @override
@@ -14,6 +36,7 @@ class _TransportPageState extends State<TransportPage>
   @override
   void initState() {
     super.initState();
+    // Controle de abas para Ônibus, Metrô e Bike.
     _tabController = TabController(length: 3, vsync: this);
   }
 
@@ -47,6 +70,7 @@ class _TransportPageState extends State<TransportPage>
     );
   }
 
+  /// Aba de Ônibus com busca e linhas próximas.
   Widget _buildBusTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -88,6 +112,7 @@ class _TransportPageState extends State<TransportPage>
     );
   }
 
+  /// Aba de Metrô com estações próximas e mapa resumido.
   Widget _buildSubwayTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -129,6 +154,7 @@ class _TransportPageState extends State<TransportPage>
     );
   }
 
+  /// Aba de Bike com estações e informações de uso.
   Widget _buildBikeTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -167,6 +193,7 @@ class _TransportPageState extends State<TransportPage>
     );
   }
 
+  /// Card reutilizável de busca simples.
   Widget _buildSearchCard(String hint) {
     return Card(
       child: Padding(
@@ -189,6 +216,7 @@ class _TransportPageState extends State<TransportPage>
     );
   }
 
+  /// Card de linha de ônibus.
   Widget _buildBusRouteCard({
     required String routeNumber,
     required String routeName,
@@ -263,6 +291,7 @@ class _TransportPageState extends State<TransportPage>
     );
   }
 
+  /// Card de estação de metrô.
   Widget _buildSubwayStationCard({
     required String stationName,
     required String line,
@@ -324,6 +353,7 @@ class _TransportPageState extends State<TransportPage>
     );
   }
 
+  /// Card de estação de bike.
   Widget _buildBikeStationCard({
     required String stationName,
     required int availableBikes,
@@ -379,6 +409,7 @@ class _TransportPageState extends State<TransportPage>
     );
   }
 
+  /// Seção de favoritos (mock) para guiar o usuário.
   Widget _buildFavoritesSection(String title) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -418,6 +449,7 @@ class _TransportPageState extends State<TransportPage>
     );
   }
 
+  /// Card para abrir o mapa do modal (ação futura).
   Widget _buildMapCard(String title) {
     return Card(
       child: InkWell(
@@ -459,6 +491,7 @@ class _TransportPageState extends State<TransportPage>
     );
   }
 
+  /// Card com instruções de uso do sistema de bikes.
   Widget _buildBikeInfoCard() {
     return Card(
       child: Padding(
@@ -481,6 +514,7 @@ class _TransportPageState extends State<TransportPage>
     );
   }
 
+  /// Passo informativo enumerado.
   Widget _buildInfoStep(String number, String description) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -518,6 +552,7 @@ class _TransportPageState extends State<TransportPage>
 
   @override
   void dispose() {
+    // Dispose do TabController para evitar leaks.
     _tabController.dispose();
     super.dispose();
   }

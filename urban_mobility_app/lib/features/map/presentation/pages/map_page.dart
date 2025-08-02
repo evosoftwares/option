@@ -1,8 +1,31 @@
+////
+/// Página de Mapa
+///
+/// Propósito:
+/// - Exibir área do mapa (placeholder) com busca e ações de localização/direções.
+///
+/// Camadas/Dependências:
+/// - Presentation da feature Map.
+/// - Consome [`LocationService`](urban_mobility_app/lib/shared/services/location_service.dart) para localização atual.
+///
+/// Responsabilidades:
+/// - Buscar locais por texto (mock) e apresentar feedback.
+/// - Mostrar info da localização atual.
+///
+/// Pontos de extensão:
+/// - Integração com Google Maps.
+/// - Navegação para rotas/direções.
+///
+/// Notas:
+/// - Mantém estado de busca local (_isSearching) e controller de texto.
+///
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../shared/services/location_service.dart';
 
+/// Página principal do mapa.
 class MapPage extends StatefulWidget {
+  /// Construtor padrão.
   const MapPage({super.key});
 
   @override
@@ -10,7 +33,10 @@ class MapPage extends StatefulWidget {
 }
 
 class _MapPageState extends State<MapPage> {
+  /// Controller do campo de busca.
   final TextEditingController _searchController = TextEditingController();
+
+  /// Flag de estado para exibir indicador de progresso na busca.
   bool _isSearching = false;
 
   @override
@@ -24,6 +50,7 @@ class _MapPageState extends State<MapPage> {
           IconButton(
             icon: const Icon(Icons.my_location),
             onPressed: () {
+              // Interação direta com o serviço para atualizar a posição atual.
               context.read<LocationService>().getCurrentPosition();
             },
           ),
@@ -74,6 +101,7 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  /// Barra de busca com indicador de progresso e limpeza.
   Widget _buildSearchBar() {
     return Card(
       elevation: 4,
@@ -112,6 +140,8 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  /// Card com informações da localização atual do usuário.
+  /// Exibe endereço (se disponível) e coordenadas formatadas.
   Widget _buildLocationInfo() {
     return Consumer<LocationService>(
       builder: (context, locationService, child) {
@@ -161,6 +191,7 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  /// Botões flutuantes para ações rápidas (direções e opções de transporte).
   Widget _buildFloatingActions() {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -182,7 +213,14 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
-  void _performSearch(String query) async {
+  /// Executa uma busca textual por localizações.
+  /// Parâmetros:
+  /// - [query]: termo de busca.
+  /// Retorno: Future<void>.
+  /// Efeitos colaterais:
+  /// - Atualiza estado local (_isSearching).
+  /// - Exibe SnackBars para sucesso/erro.
+  Future<void> _performSearch(String query) async {
     if (query.trim().isEmpty) return;
 
     setState(() {
@@ -194,7 +232,7 @@ class _MapPageState extends State<MapPage> {
       final locations = await locationService.searchLocation(query);
 
       if (locations.isNotEmpty) {
-        // Aqui você implementaria a navegação para o local encontrado
+        // Navegação futura pode ser adicionada aqui com o resultado.
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -217,6 +255,7 @@ class _MapPageState extends State<MapPage> {
     }
   }
 
+  /// Dialog informativo para futuras direções.
   void _showDirectionsDialog() {
     showDialog(
       context: context,
@@ -235,6 +274,7 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  /// Bottom sheet com opções de transporte relacionadas ao mapa.
   void _showTransportOptions() {
     showModalBottomSheet(
       context: context,
@@ -283,6 +323,7 @@ class _MapPageState extends State<MapPage> {
 
   @override
   void dispose() {
+    // Dispose do controller de busca para evitar leaks.
     _searchController.dispose();
     super.dispose();
   }

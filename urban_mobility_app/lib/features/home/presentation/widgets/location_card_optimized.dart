@@ -1,9 +1,28 @@
-/* [Widget: LocationCard] Componente otimizado para exibição de localização */
+////
+/// LocationCardOptimized
+///
+/// Propósito:
+/// - Exibir o status de localização usando um seletor otimizado para rebuilds.
+///
+/// Camadas/Dependências:
+/// - Presentation (widget) que consome [`LocationServiceOptimized`](urban_mobility_app/lib/shared/services/location_service_optimized.dart).
+///
+/// Responsabilidades:
+/// - Renderizar cabeçalho e conteúdo conforme estado (loading/erro/sucesso/inicial).
+///
+/// Pontos de extensão:
+/// - Ação de retry, estilos e layout responsivo.
+///
+/// Notas:
+/// - Usa Selector para reduzir rebuilds; sem lógica de navegação.
+///
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../shared/services/location_service_optimized.dart';
 
+/// Card otimizado para exibição de localização atual do usuário.
 class LocationCardOptimized extends StatelessWidget {
+  /// Construtor padrão.
   const LocationCardOptimized({super.key});
 
   @override
@@ -28,6 +47,7 @@ class LocationCardOptimized extends StatelessWidget {
     );
   }
 
+  /// Cabeçalho com ícone e título.
   Widget _buildHeader(BuildContext context) {
     return Row(
       children: [
@@ -44,6 +64,8 @@ class LocationCardOptimized extends StatelessWidget {
     );
   }
 
+  /// Renderiza o conteúdo conforme o estado do serviço de localização.
+  /// Efeitos colaterais: nenhum (apenas UI). Em caso de erro, expõe callback de retry.
   Widget _buildContent(BuildContext context, LocationResult state) {
     switch (state.status) {
       case LocationStatus.loading:
@@ -52,7 +74,9 @@ class LocationCardOptimized extends StatelessWidget {
       case LocationStatus.permissionDenied:
         return _ErrorState(
           error: state.error ?? 'Erro desconhecido',
-          onRetry: () => context.read<LocationServiceOptimized>().getCurrentPosition(forceRefresh: true),
+          onRetry: () => context
+              .read<LocationServiceOptimized>()
+              .getCurrentPosition(forceRefresh: true),
         );
       case LocationStatus.success:
         return _SuccessState(address: state.address ?? 'Endereço não disponível');
@@ -62,6 +86,7 @@ class LocationCardOptimized extends StatelessWidget {
   }
 }
 
+/// Estado visual de carregamento da localização.
 class _LoadingState extends StatelessWidget {
   const _LoadingState();
 
@@ -83,8 +108,12 @@ class _LoadingState extends StatelessWidget {
   }
 }
 
+/// Estado visual de erro/permissão negada com ação de tentar novamente.
 class _ErrorState extends StatelessWidget {
+  /// Mensagem de erro legível ao usuário.
   final String error;
+
+  /// Callback para solicitar localização novamente.
   final VoidCallback onRetry;
 
   const _ErrorState({
@@ -114,7 +143,9 @@ class _ErrorState extends StatelessWidget {
   }
 }
 
+/// Estado visual de sucesso mostrando o endereço atual.
 class _SuccessState extends StatelessWidget {
+  /// Endereço formatado.
   final String address;
 
   const _SuccessState({required this.address});
@@ -130,6 +161,7 @@ class _SuccessState extends StatelessWidget {
   }
 }
 
+/// Estado inicial quando a localização ainda não foi solicitada.
 class _InitialState extends StatelessWidget {
   const _InitialState();
 

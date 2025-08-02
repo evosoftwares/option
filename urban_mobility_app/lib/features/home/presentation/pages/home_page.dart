@@ -201,13 +201,11 @@ class _HomePageState extends State<HomePage> {
                     ],
                   )
                 else if (locationService.currentAddress != null)
-                  Flexible(
-                    child: Text(
-                      locationService.currentAddress!,
-                      style: Theme.of(context).textTheme.bodyLarge,
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 2,
-                    ),
+                  Text(
+                    locationService.currentAddress!,
+                    style: Theme.of(context).textTheme.bodyLarge,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
                   )
                 else
                   const Text('Localização não disponível'),

@@ -133,11 +133,29 @@ flutter run -d emulator-5554
 
 ### 🔐 Configurações de Segurança
 
-#### Permissões Necessárias
-- `ACCESS_FINE_LOCATION` - Para localização GPS
-- `ACCESS_COARSE_LOCATION` - Para localização de rede
-- `INTERNET` - Para mapas e APIs
-- `ACCESS_NETWORK_STATE` - Para verificar conectividade
+#### Permissões de Localização ✅ **CONFIGURADAS**
+```xml
+<!-- AndroidManifest.xml -->
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+<uses-permission android:name="android.permission.WAKE_LOCK" />
+<uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+```
+
+#### Detalhamento das Permissões
+- ✅ `ACCESS_FINE_LOCATION` - Localização GPS precisa
+- ✅ `ACCESS_COARSE_LOCATION` - Localização de rede aproximada  
+- ✅ `INTERNET` - Acesso à internet para mapas e APIs
+- ✅ `ACCESS_NETWORK_STATE` - Verificar estado da conectividade
+- ✅ `WAKE_LOCK` - Manter dispositivo ativo durante navegação
+- ✅ `ACCESS_BACKGROUND_LOCATION` - Localização em background (opcional)
+
+#### Resolução de Problemas de Localização
+**Erro**: "No location permissions are defined in the manifest"
+- ✅ **RESOLVIDO**: Permissões adicionadas ao AndroidManifest.xml
+- 📖 **Documentação**: Ver `LOCATION_PERMISSIONS.md` para detalhes completos
 
 #### Configuração de Release
 ```bash

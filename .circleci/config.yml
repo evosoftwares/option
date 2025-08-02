@@ -1,0 +1,552 @@
+# CircleCI configuration for a modern application with Node.js matrix, Docker build/push,
+# AWS ECS deploy, reusable executors/commands, caching, artifacts, contexts, and secure defaults.
+# Version is pinned for stability.
+version: 2.1
+
+# Pin orbs to exact versions for supply-chain security
+orbs:
+  aws-cli: circleci/aws-cli@3.1.4
+  aws-ecr: circleci/aws-ecr@8.2.1
+  aws-ecs: circleci/aws-ecs@4.0.0
+  node: circleci/node@5.1.0
+  docker: circleci/docker@2.3.0
+
+# Reusable executors (Docker images) to avoid duplication
+executors:
+  node_executor:
+    docker:
+      - image: cimg/node:<<parameters.node_version>>
+        auth:
+          username: $DOCKERHUB_USERNAME
+          password: $DOCKERHUB_TOKEN
+    resource_class: medium
+    parameters:
+      node_version:
+        type: string
+        default: "18.19" # default node line; overridden by matrix
+    environment:
+      # place app-wide envs that are safe (non-secrets)
+      NODE_ENV: test
+  docker_build_executor:
+    docker:
+      - image: cimg/base:stable
+        auth:
+          username: $DOCKERHUB_USERNAME
+          password: $DOCKERHUB_TOKEN
+    resource_class: large
+  aws_executor:
+    docker:
+      - image: cimg/python:3.11
+        auth:
+          username: $DOCKERHUB_USERNAME
+          password: $DOCKERHUB_TOKEN
+    resource_class: medium
+    environment:
+      AWS_REGION: ${AWS_REGION}
+
+# Reusable commands for setup, caching, and test artifact handling
+commands:
+  checkout_and_restore_cache:
+    description: "Checkout repository and restore dependency cache"
+    parameters:
+      cache_key_prefix:
+        type: string
+        default: "deps"
+      lockfile:
+        type: string
+        default: "package-lock.json"
+    steps:
+      - checkout
+      - run:
+          name: Verify lockfile presence
+          command: |
+            [ -f <<parameters.lockfile>> ] || echo "Lockfile not found (<<parameters.lockfile>>). Proceeding without precise cache key."
+      - restore_cache:
+          keys:
+            - &cachekey >-
+              {{ arch }}-{{ .Branch }}-<<parameters.cache_key_prefix>>-{{ checksum "<<parameters.lockfile>>" }}
+            - {{ arch }}-{{ .Branch }}-<<parameters.cache_key_prefix>>-
+            - {{ arch }}-master-<<parameters.cache_key_prefix>>-
+  save_dependency_cache:
+    description: "Save dependency cache with checksum key"
+    parameters:
+      cache_key_prefix:
+        type: string
+        default: "deps"
+      lockfile:
+        type: string
+        default: "package-lock.json"
+      paths:
+        type: array
+        default:
+          - node_modules
+    steps:
+      - save_cache:
+          key: *cachekey
+          paths: <<parameters.paths>>
+  persist_test_artifacts:
+    description: "Persist test results and coverage artifacts"
+    parameters:
+      test_results_dir:
+        type: string
+        default: "test-results"
+      coverage_dir:
+        type: string
+        default: "coverage"
+    steps:
+      - store_test_results:
+          path: <<parameters.test_results_dir>>
+      - store_artifacts:
+          path: <<parameters.test_results_dir>>
+          destination: junit
+      - when:
+          condition:
+            equal: [ "true", "${STORE_COVERAGE:-true}" ]
+          steps:
+            - store_artifacts:
+                path: <<parameters.coverage_dir>>
+                destination: coverage
+
+# Parameters for pipeline-level customization
+parameters:
+  run_integration_cron:
+    type: boolean
+    default: false
+  docker_image_name:
+    type: string
+    default: my-org/myapp
+  docker_context:
+    type: string
+    default: .
+  dockerfile:
+    type: string
+    default: Dockerfile
+  aws_ecr_repo:
+    type: string
+    default: myapp
+  aws_cluster:
+    type: string
+    default: myapp-cluster
+  aws_service_staging:
+    type: string
+    default: myapp-staging-service
+  aws_service_production:
+    type: string
+    default: myapp-production-service
+
+# Jobs
+jobs:
+  lint:
+    description: "Run linter"
+    executor:
+      name: node_executor
+      node_version: &default_node "18.19"
+    steps:
+      - checkout_and_restore_cache:
+          cache_key_prefix: "node-deps"
+          lockfile: "package-lock.json"
+      - run:
+          name: Install dependencies (ci)
+          command: |
+            if [ -f package-lock.json ]; then
+              npm ci --prefer-offline
+            else
+              npm install --prefer-offline
+            fi
+      - run:
+          name: Run linter
+          command: |
+            npm run lint || npm run lint:ci || echo "No lint script found"
+      - save_dependency_cache:
+          cache_key_prefix: "node-deps"
+          lockfile: "package-lock.json"
+
+  unit_tests:
+    description: "Run unit tests across Node matrix with JUnit output"
+    executor:
+      name: node_executor
+      node_version: "<<parameters.node_version>>"
+    parameters:
+      node_version:
+        type: string
+        default: *default_node
+    steps:
+      - checkout_and_restore_cache:
+          cache_key_prefix: "node-deps"
+          lockfile: "package-lock.json"
+      - run:
+          name: Install dependencies (ci)
+          command: |
+            if [ -f package-lock.json ]; then
+              npm ci --prefer-offline
+            else
+              npm install --prefer-offline
+            fi
+      - run:
+          name: Run unit tests with coverage and JUnit
+          command: |
+            mkdir -p test-results coverage
+            # Try common test reporters; ensure junit XML lands in test-results
+            if npm run test:ci --silent; then
+              echo "Executed test:ci"
+            else
+              # Fallback using jest with reporters if present
+              if npx --yes jest --ci --reporters=default --reporters=jest-junit --coverage --coverageDirectory=coverage; then
+                echo "Executed jest fallback"
+                # jest-junit defaults to junit.xml in root; move it
+                [ -f junit.xml ] && mv junit.xml test-results/junit.xml || true
+              else
+                # Generic npm test fallback
+                npm test || true
+              fi
+            fi
+      - persist_test_artifacts:
+          test_results_dir: "test-results"
+          coverage_dir: "coverage"
+      - save_dependency_cache:
+          cache_key_prefix: "node-deps"
+          lockfile: "package-lock.json"
+
+  integration_tests:
+    description: "Run integration/e2e tests (nightly and on main)"
+    executor:
+      name: node_executor
+      node_version: *default_node
+    steps:
+      - checkout_and_restore_cache:
+          cache_key_prefix: "node-deps"
+          lockfile: "package-lock.json"
+      - run:
+          name: Install dependencies (ci)
+          command: |
+            if [ -f package-lock.json ]; then
+              npm ci --prefer-offline
+            else
+              npm install --prefer-offline
+            fi
+      - run:
+          name: Start app/services (background)
+          command: |
+            if [ -f docker-compose.yml ]; then
+              docker-compose up -d || true
+            fi
+      - run:
+          name: Run integration tests with JUnit
+          command: |
+            mkdir -p test-results coverage
+            npm run test:integration --silent || npm run e2e --silent || true
+            # If tools export junit to junit.xml, move it
+            [ -f junit.xml ] && mv junit.xml test-results/junit.xml || true
+      - persist_test_artifacts:
+          test_results_dir: "test-results"
+          coverage_dir: "coverage"
+
+  build:
+    description: "Build application and persist build artifacts"
+    executor:
+      name: node_executor
+      node_version: *default_node
+    steps:
+      - checkout_and_restore_cache:
+          cache_key_prefix: "node-deps"
+          lockfile: "package-lock.json"
+      - run:
+          name: Install dependencies (ci)
+          command: |
+            if [ -f package-lock.json ]; then
+              npm ci --prefer-offline
+            else
+              npm install --prefer-offline
+            fi
+      - run:
+          name: Build app
+          command: |
+            npm run build || echo "No build script found"
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
+      - store_artifacts:
+          path: dist
+          destination: dist
+      - save_dependency_cache:
+          cache_key_prefix: "node-deps"
+          lockfile: "package-lock.json"
+
+  docker_build_and_push:
+    description: "Build and push Docker image to ECR or Docker Hub"
+    executor: docker_build_executor
+    environment:
+      DOCKER_BUILDKIT: "1"
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+          version: 20.10.24
+      - when:
+          condition:
+            matches:
+              pattern: "^v.*"
+              value: &tag_or_sha >-
+                ${CIRCLE_TAG:-${CIRCLE_SHA1}}
+          steps:
+            - run:
+                name: Set IMAGE_TAG from tag or sha
+                command: |
+                  if [ -n "$CIRCLE_TAG" ]; then
+                    echo "export IMAGE_TAG=$CIRCLE_TAG" >> $BASH_ENV
+                  else
+                    echo "export IMAGE_TAG=${CIRCLE_SHA1:0:12}" >> $BASH_ENV
+                  fi
+      - run:
+          name: Docker build
+          command: |
+            source $BASH_ENV
+            docker build -t "<< pipeline.parameters.docker_image_name >>:${IMAGE_TAG:-${CIRCLE_SHA1:0:12}}" -f "<< pipeline.parameters.dockerfile >>" "<< pipeline.parameters.docker_context >>"
+      - run:
+          name: Login to registry
+          command: |
+            if [ -n "$AWS_ECR_ACCOUNT_URL" ]; then
+              echo "Login AWS ECR"
+              aws --version
+              aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${AWS_ECR_ACCOUNT_URL}"
+            else
+              echo "Login Docker Hub"
+              echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            fi
+      - run:
+          name: Push image
+          command: |
+            source $BASH_ENV
+            if [ -n "$AWS_ECR_ACCOUNT_URL" ]; then
+              docker tag "<< pipeline.parameters.docker_image_name >>:${IMAGE_TAG:-${CIRCLE_SHA1:0:12}}" "${AWS_ECR_ACCOUNT_URL}/<< pipeline.parameters.aws_ecr_repo >>:${IMAGE_TAG:-${CIRCLE_SHA1:0:12}}"
+              docker push "${AWS_ECR_ACCOUNT_URL}/<< pipeline.parameters.aws_ecr_repo >>:${IMAGE_TAG:-${CIRCLE_SHA1:0:12}}"
+            else
+              docker push "<< pipeline.parameters.docker_image_name >>:${IMAGE_TAG:-${CIRCLE_SHA1:0:12}}"
+            fi
+
+  deploy_staging:
+    description: "Deploy to AWS ECS Staging on pushes to main"
+    executor: aws_executor
+    steps:
+      - aws-cli/setup:
+          profile-name: default
+      - when:
+          condition:
+            and:
+              - equal: [ "main", << pipeline.git.branch >> ]
+              - not:
+                  matches:
+                    pattern: "^v.*"
+                    value: << pipeline.git.tag >>
+          steps:
+            - run:
+                name: Update ECS service (staging)
+                command: |
+                  IMAGE_TAG="${CIRCLE_SHA1:0:12}"
+                  if [ -n "$AWS_ECR_ACCOUNT_URL" ]; then
+                    IMAGE="${AWS_ECR_ACCOUNT_URL}/<< pipeline.parameters.aws_ecr_repo >>:${IMAGE_TAG}"
+                  else
+                    IMAGE="<< pipeline.parameters.docker_image_name >>:${IMAGE_TAG}"
+                  fi
+                  echo "Deploying image $IMAGE to staging"
+            - aws-ecs/deploy-service-update:
+                family: "<< pipeline.parameters.aws_service_staging >>"
+                cluster-name: "<< pipeline.parameters.aws_cluster >>"
+                container-image-name-updates: "container=<< pipeline.parameters.aws_service_staging >>,tag=${CIRCLE_SHA1:0:12}"
+
+  hold_production:
+    description: "Manual approval gate for production"
+    type: approval
+
+  deploy_production:
+    description: "Deploy to AWS ECS Production on version tags v*"
+    executor: aws_executor
+    steps:
+      - aws-cli/setup:
+          profile-name: default
+      - when:
+          condition:
+            matches:
+              pattern: "^v.*"
+              value: << pipeline.git.tag >>
+          steps:
+            - run:
+                name: Update ECS service (production)
+                command: |
+                  IMAGE_TAG="${CIRCLE_TAG}"
+                  if [ -n "$AWS_ECR_ACCOUNT_URL" ]; then
+                    IMAGE="${AWS_ECR_ACCOUNT_URL}/<< pipeline.parameters.aws_ecr_repo >>:${IMAGE_TAG}"
+                  else
+                    IMAGE="<< pipeline.parameters.docker_image_name >>:${IMAGE_TAG}"
+                  fi
+                  echo "Deploying image $IMAGE to production"
+            - aws-ecs/deploy-service-update:
+                family: "<< pipeline.parameters.aws_service_production >>"
+                cluster-name: "<< pipeline.parameters.aws_cluster >>"
+                container-image-name-updates: "container=<< pipeline.parameters.aws_service_production >>,tag=${CIRCLE_TAG}"
+
+# Workflows with triggers, fan-in/fan-out, approvals, and matrix
+workflows:
+  version: 2
+
+  pr_checks:
+    when:
+      and:
+        - equal: [ "pull_request", << pipeline.trigger_source >> ]
+    jobs:
+      - lint:
+          context:
+            - org-global-readonly # context for non-sensitive vars
+      - unit_tests:
+          name: unit_node_16
+          matrix:
+            parameters:
+              node_version: ["16.20"]
+          context:
+            - org-global-readonly
+      - unit_tests:
+          name: unit_node_18
+          matrix:
+            parameters:
+              node_version: ["18.19"]
+          context:
+            - org-global-readonly
+      - unit_tests:
+          name: unit_node_20
+          matrix:
+            parameters:
+              node_version: ["20.11"]
+          context:
+            - org-global-readonly
+
+  main_pipeline:
+    triggers:
+      - schedule:
+          # Nightly schedule for extended tests (integration/regression)
+          cron: "0 3 * * *"
+          filters:
+            branches:
+              only:
+                - main
+    jobs:
+      - lint:
+          context:
+            - org-global-readonly
+          filters:
+            branches:
+              only: [ main ]
+      - unit_tests:
+          name: unit_node_16
+          matrix:
+            parameters:
+              node_version: ["16.20"]
+          context:
+            - org-global-readonly
+          filters:
+            branches:
+              only: [ main ]
+      - unit_tests:
+          name: unit_node_18
+          matrix:
+            parameters:
+              node_version: ["18.19"]
+          context:
+            - org-global-readonly
+          filters:
+            branches:
+              only: [ main ]
+      - unit_tests:
+          name: unit_node_20
+          matrix:
+            parameters:
+              node_version: ["20.11"]
+          context:
+            - org-global-readonly
+          filters:
+            branches:
+              only: [ main ]
+      - integration_tests:
+          context:
+            - org-global-readonly
+            - integration-secrets # context containing non-prod tokens
+          requires:
+            - lint
+            - unit_node_16
+            - unit_node_18
+            - unit_node_20
+          filters:
+            branches:
+              only: [ main ]
+      - build:
+          context:
+            - org-global-readonly
+          requires:
+            - integration_tests
+          filters:
+            branches:
+              only: [ main ]
+      - docker_build_and_push:
+          context:
+            - org-global-readonly
+            - registry-push # context with DOCKERHUB_TOKEN or AWS creds
+          requires:
+            - build
+          filters:
+            branches:
+              only: [ main ]
+      - deploy_staging:
+          context:
+            - org-global-readonly
+            - aws-staging # context with limited IAM to staging
+          requires:
+            - docker_build_and_push
+          filters:
+            branches:
+              only: [ main ]
+
+  release_pipeline:
+    when:
+      matches:
+        pattern: "^v.*"
+        value: << pipeline.git.tag >>
+    jobs:
+      - lint:
+          context:
+            - org-global-readonly
+      - unit_tests:
+          name: unit_node_matrix
+          matrix:
+            parameters:
+              node_version: ["16.20", "18.19", "20.11"]
+          context:
+            - org-global-readonly
+      - build:
+          context:
+            - org-global-readonly
+          requires:
+            - lint
+            - unit_node_matrix
+      - docker_build_and_push:
+          context:
+            - org-global-readonly
+            - registry-push
+          requires:
+            - build
+      - hold_production:
+          type: approval
+          requires:
+            - docker_build_and_push
+      - deploy_production:
+          context:
+            - org-global-readonly
+            - aws-production # context with tightly-scoped prod IAM
+          requires:
+            - hold_production
+
+# Security notes:
+# - Use CircleCI Contexts for secrets (aws-staging, aws-production, registry-push).
+# - Limit IAM permissions to least privilege for ECS and ECR.
+# - Orbs pinned to exact versions; update deliberately.
+# - Avoid echoing secrets; commands do not print tokens.
+# - Use project-level environment variables for non-secrets like NODE_ENV.

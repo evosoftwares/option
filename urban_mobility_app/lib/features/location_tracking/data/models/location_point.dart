@@ -1,130 +1,84 @@
+import 'dart:convert';
 import 'dart:math' as math;
+
 import 'package:isar/isar.dart';
-import 'package:json_annotation/json_annotation.dart';
 
 part 'location_point.g.dart';
 
 @collection
-@JsonSerializable()
 class LocationPoint {
   Id id = Isar.autoIncrement;
-
-  @Index()
+  
+  // Coordenadas
   late double lat;
-
-  @Index()
   late double lng;
-
   late double accuracy;
-
   double? altitude;
   double? speed;
   double? heading;
-
-  @Index()
-  late DateTime recordedAt;
-
-  DateTime createdAt = DateTime.now();
-
-  // Metadados do dispositivo
-  int? batteryLevel;
-  String? activityType;
-  String? networkType;
-
-  // Status de sincronização
-  @Index()
-  bool syncedToSupabase = false;
   
-  @Index()
+  // Timestamps
+  late DateTime recordedAt;
+  DateTime? syncedAt;
+  
+  // Contexto
+  String activityType = 'unknown';
+  int batteryLevel = 100;
+  String networkType = 'unknown';
+  
+  // Estado de sincronização
+  bool syncedToSupabase = false;
   bool syncedToFirebase = false;
-
-  DateTime? lastSyncAttempt;
-  String? syncError;
-
-  // Dados criptografados (opcional para dados sensíveis)
-  String? encryptedMetadata;
-
+  
+  // Metadados como String JSON
+  String deviceInfoJson = '{}';
+  String? lastError;
+  
   LocationPoint();
-
-  factory LocationPoint.fromJson(Map<String, dynamic> json) {
-    return LocationPoint()
-      ..lat = json['lat']?.toDouble() ?? 0.0
-      ..lng = json['lng']?.toDouble() ?? 0.0
-      ..accuracy = json['accuracy']?.toDouble() ?? 0.0
-      ..altitude = json['altitude']?.toDouble()
-      ..speed = json['speed']?.toDouble()
-      ..heading = json['heading']?.toDouble()
-      ..recordedAt = DateTime.parse(json['recordedAt'] ?? DateTime.now().toIso8601String())
-      ..batteryLevel = json['batteryLevel']?.toInt()
-      ..activityType = json['activityType']
-      ..networkType = json['networkType']
-      ..syncedToSupabase = json['syncedToSupabase'] ?? false
-      ..syncedToFirebase = json['syncedToFirebase'] ?? false;
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'lat': lat,
-      'lng': lng,
-      'accuracy': accuracy,
-      'altitude': altitude,
-      'speed': speed,
-      'heading': heading,
-      'recordedAt': recordedAt.toIso8601String(),
-      'batteryLevel': batteryLevel,
-      'activityType': activityType,
-      'networkType': networkType,
-      'syncedToSupabase': syncedToSupabase,
-      'syncedToFirebase': syncedToFirebase,
-    };
-  }
-
-  // Método para criar ponto de localização com validação
-  factory LocationPoint.create({
-    required double lat,
-    required double lng,
-    required double accuracy,
-    double? altitude,
-    double? speed,
-    double? heading,
-    DateTime? recordedAt,
-    int? batteryLevel,
-    String? activityType,
-    String? networkType,
+  
+  LocationPoint.create({
+    required this.lat,
+    required this.lng,
+    required this.accuracy,
+    this.altitude,
+    this.speed,
+    this.heading,
+    required this.recordedAt,
+    this.activityType = 'unknown',
+    this.batteryLevel = 100,
+    this.networkType = 'unknown',
+    Map<String, dynamic>? deviceInfo,
   }) {
-    // Validações básicas
-    if (lat < -90 || lat > 90) {
-      throw ArgumentError('Latitude deve estar entre -90 e 90');
+    if (deviceInfo != null) {
+      deviceInfoJson = jsonEncode(deviceInfo);
     }
-    if (lng < -180 || lng > 180) {
-      throw ArgumentError('Longitude deve estar entre -180 e 180');
-    }
-    if (accuracy < 0) {
-      throw ArgumentError('Accuracy não pode ser negativa');
-    }
-
-    return LocationPoint()
-      ..lat = lat
-      ..lng = lng
-      ..accuracy = accuracy
-      ..altitude = altitude
-      ..speed = speed
-      ..heading = heading
-      ..recordedAt = recordedAt ?? DateTime.now()
-      ..batteryLevel = batteryLevel
-      ..activityType = activityType
-      ..networkType = networkType;
   }
-
-  // Calcular distância para outro ponto (em metros)
+  
+  // Getter para deviceInfo
+  @ignore
+  Map<String, dynamic> get deviceInfo {
+    try {
+      return jsonDecode(deviceInfoJson) as Map<String, dynamic>;
+    } catch (e) {
+      return {};
+    }
+  }
+  
+  // Setter para deviceInfo
+  @ignore
+  set deviceInfo(Map<String, dynamic> value) {
+    deviceInfoJson = jsonEncode(value);
+  }
+  
+  /// Calcula distância para outro ponto em metros
   double distanceTo(LocationPoint other) {
     const double earthRadius = 6371000; // metros
     
-    final lat1Rad = lat * (3.14159265359 / 180);
-    final lat2Rad = other.lat * (3.14159265359 / 180);
-    final deltaLatRad = (other.lat - lat) * (3.14159265359 / 180);
-    final deltaLngRad = (other.lng - lng) * (3.14159265359 / 180);
-
+    final lat1Rad = lat * (math.pi / 180);
+    final lat2Rad = other.lat * (math.pi / 180);
+    final deltaLatRad = (other.lat - lat) * (math.pi / 180);
+    final deltaLngRad = (other.lng - lng) * (math.pi / 180);
+    
     final a = math.sin(deltaLatRad / 2) * math.sin(deltaLatRad / 2) +
         math.cos(lat1Rad) * math.cos(lat2Rad) *
         math.sin(deltaLngRad / 2) * math.sin(deltaLngRad / 2);
@@ -133,130 +87,174 @@ class LocationPoint {
     
     return earthRadius * c;
   }
-
-  // Verificar se é um ponto significativo comparado ao anterior
-  bool isSignificantChange(LocationPoint? previous) {
+  
+  /// Verifica se houve mudança significativa
+  bool hasSignificantChange(LocationPoint? previous) {
     if (previous == null) return true;
     
     final distance = distanceTo(previous);
     final timeDiff = recordedAt.difference(previous.recordedAt).inSeconds;
     
-    // Critérios para mudança significativa:
-    // 1. Distância > 10 metros
-    // 2. Mudança de atividade
-    // 3. Intervalo > 5 minutos
-    return distance > 10 || 
-           activityType != previous.activityType ||
-           timeDiff > 300;
+    return distance > 10 || timeDiff > 300 || activityType != previous.activityType;
   }
-
-  @override
-  String toString() {
-    return 'LocationPoint(lat: $lat, lng: $lng, accuracy: $accuracy, '
-           'recordedAt: $recordedAt, synced: $syncedToSupabase)';
+  
+  /// Valida se o ponto é válido
+  bool get isValid {
+    return lat.abs() <= 90 && 
+           lng.abs() <= 180 && 
+           accuracy > 0 && 
+           accuracy < 1000;
   }
-}
-
-@collection
-@JsonSerializable()
-class TrackingSession {
-  Id id = Isar.autoIncrement;
-
-  @Index(unique: true)
-  late String sessionId;
-
-  @Index()
-  late String userId;
-
-  @Index()
-  late DateTime startedAt;
-
-  DateTime? endedAt;
-
-  @Index()
-  bool isActive = true;
-
-  // Métricas da sessão
-  double totalDistance = 0.0;
-  int pointsCollected = 0;
-  int batteryConsumed = 0;
-
-  // Configurações da sessão
-  String trackingMode = 'normal'; // normal, economy, high_precision
-  int intervalSeconds = 30;
-  double distanceFilter = 10.0;
-
-  // Metadados
-  Map<String, dynamic> deviceInfo = {};
-  String? lastError;
-
-  TrackingSession();
-
-  factory TrackingSession.fromJson(Map<String, dynamic> json) {
-    return TrackingSession()
-      ..sessionId = json['sessionId'] ?? ''
-      ..userId = json['userId'] ?? ''
-      ..startedAt = DateTime.parse(json['startedAt'] ?? DateTime.now().toIso8601String())
-      ..endedAt = json['endedAt'] != null ? DateTime.parse(json['endedAt']) : null
-      ..isActive = json['isActive'] ?? true
-      ..totalDistance = json['totalDistance']?.toDouble() ?? 0.0
-      ..pointsCollected = json['pointsCollected']?.toInt() ?? 0
-      ..batteryConsumed = json['batteryConsumed']?.toInt() ?? 0
-      ..trackingMode = json['trackingMode'] ?? 'normal'
-      ..intervalSeconds = json['intervalSeconds']?.toInt() ?? 30
-      ..distanceFilter = json['distanceFilter']?.toDouble() ?? 10.0
-      ..deviceInfo = Map<String, dynamic>.from(json['deviceInfo'] ?? {})
-      ..lastError = json['lastError'];
-  }
-
+  
   Map<String, dynamic> toJson() {
     return {
-      'sessionId': sessionId,
-      'userId': userId,
-      'startedAt': startedAt.toIso8601String(),
-      'endedAt': endedAt?.toIso8601String(),
-      'isActive': isActive,
-      'totalDistance': totalDistance,
-      'pointsCollected': pointsCollected,
-      'batteryConsumed': batteryConsumed,
-      'trackingMode': trackingMode,
-      'intervalSeconds': intervalSeconds,
-      'distanceFilter': distanceFilter,
+      'id': id,
+      'lat': lat,
+      'lng': lng,
+      'accuracy': accuracy,
+      'altitude': altitude,
+      'speed': speed,
+      'heading': heading,
+      'recordedAt': recordedAt.toIso8601String(),
+      'syncedAt': syncedAt?.toIso8601String(),
+      'activityType': activityType,
+      'batteryLevel': batteryLevel,
+      'networkType': networkType,
+      'syncedToSupabase': syncedToSupabase,
+      'syncedToFirebase': syncedToFirebase,
       'deviceInfo': deviceInfo,
       'lastError': lastError,
     };
   }
-
-  factory TrackingSession.create({
-    required String userId,
-    String? sessionId,
-    String trackingMode = 'normal',
-  }) {
-    return TrackingSession()
-      ..sessionId = sessionId ?? DateTime.now().millisecondsSinceEpoch.toString()
-      ..userId = userId
-      ..startedAt = DateTime.now()
-      ..trackingMode = trackingMode;
+  
+  factory LocationPoint.fromJson(Map<String, dynamic> json) {
+    final point = LocationPoint();
+    point.id = json['id'] ?? Isar.autoIncrement;
+    point.lat = (json['lat'] as num).toDouble();
+    point.lng = (json['lng'] as num).toDouble();
+    point.accuracy = (json['accuracy'] as num).toDouble();
+    point.altitude = json['altitude']?.toDouble();
+    point.speed = json['speed']?.toDouble();
+    point.heading = json['heading']?.toDouble();
+    point.recordedAt = DateTime.parse(json['recordedAt']);
+    point.syncedAt = json['syncedAt'] != null ? DateTime.parse(json['syncedAt']) : null;
+    point.activityType = json['activityType'] ?? 'unknown';
+    point.batteryLevel = json['batteryLevel'] ?? 100;
+    point.networkType = json['networkType'] ?? 'unknown';
+    point.syncedToSupabase = json['syncedToSupabase'] ?? false;
+    point.syncedToFirebase = json['syncedToFirebase'] ?? false;
+    point.deviceInfo = json['deviceInfo'] ?? {};
+    point.lastError = json['lastError'];
+    return point;
   }
+}
 
+@collection
+class TrackingSession {
+  Id id = Isar.autoIncrement;
+  
+  // Identificadores
+  late String sessionId;
+  late String userId;
+  
+  // Timestamps
+  late DateTime startedAt;
+  DateTime? endedAt;
+  
+  // Configuração
+  String trackingMode = 'adaptive';
+  bool isActive = true;
+  
+  // Métricas
+  double totalDistance = 0.0;
+  int pointsCollected = 0;
+  int batteryConsumed = 0;
+  
+  // Metadados como String JSON
+  String deviceInfoJson = '{}';
+  String? lastError;
+  
+  TrackingSession();
+  
+  TrackingSession.create({
+    required this.userId,
+    this.trackingMode = 'adaptive',
+    Map<String, dynamic>? deviceInfo,
+  }) {
+    sessionId = '${userId}_${DateTime.now().millisecondsSinceEpoch}';
+    startedAt = DateTime.now();
+    isActive = true;
+    
+    if (deviceInfo != null) {
+      deviceInfoJson = jsonEncode(deviceInfo);
+    }
+  }
+  
+  // Getter para deviceInfo
+  @ignore
+  Map<String, dynamic> get deviceInfo {
+    try {
+      return jsonDecode(deviceInfoJson) as Map<String, dynamic>;
+    } catch (e) {
+      return {};
+    }
+  }
+  
+  // Setter para deviceInfo
+  @ignore
+  set deviceInfo(Map<String, dynamic> value) {
+    deviceInfoJson = jsonEncode(value);
+  }
+  
+  /// Duração da sessão
+  @ignore
   Duration get duration {
     final end = endedAt ?? DateTime.now();
     return end.difference(startedAt);
   }
-
+  
+  /// Atualiza métricas da sessão
   void updateMetrics({
-    double? additionalDistance,
-    int? additionalPoints,
-    int? batteryUsed,
+    double additionalDistance = 0,
+    int additionalPoints = 0,
+    int additionalBattery = 0,
   }) {
-    if (additionalDistance != null) {
-      totalDistance += additionalDistance;
-    }
-    if (additionalPoints != null) {
-      pointsCollected += additionalPoints;
-    }
-    if (batteryUsed != null) {
-      batteryConsumed += batteryUsed;
-    }
+    totalDistance += additionalDistance;
+    pointsCollected += additionalPoints;
+    batteryConsumed += additionalBattery;
+  }
+  
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'sessionId': sessionId,
+      'userId': userId,
+      'startedAt': startedAt.toIso8601String(),
+      'endedAt': endedAt?.toIso8601String(),
+      'trackingMode': trackingMode,
+      'isActive': isActive,
+      'totalDistance': totalDistance,
+      'pointsCollected': pointsCollected,
+      'batteryConsumed': batteryConsumed,
+      'deviceInfo': deviceInfo,
+      'lastError': lastError,
+    };
+  }
+  
+  factory TrackingSession.fromJson(Map<String, dynamic> json) {
+    final session = TrackingSession();
+    session.id = json['id'] ?? Isar.autoIncrement;
+    session.sessionId = json['sessionId'];
+    session.userId = json['userId'];
+    session.startedAt = DateTime.parse(json['startedAt']);
+    session.endedAt = json['endedAt'] != null ? DateTime.parse(json['endedAt']) : null;
+    session.trackingMode = json['trackingMode'] ?? 'adaptive';
+    session.isActive = json['isActive'] ?? true;
+    session.totalDistance = (json['totalDistance'] as num?)?.toDouble() ?? 0.0;
+    session.pointsCollected = json['pointsCollected'] ?? 0;
+    session.batteryConsumed = json['batteryConsumed'] ?? 0;
+    session.deviceInfo = json['deviceInfo'] ?? {};
+    session.lastError = json['lastError'];
+    return session;
   }
 }

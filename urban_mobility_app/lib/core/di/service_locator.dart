@@ -12,6 +12,11 @@
  import '../network/api_client.dart';
  import '../storage/cache_service.dart';
  import '../utils/logger.dart';
+ // Firebase services
+ import '../firebase/i_auth_service.dart';
+ import '../firebase/auth_service.dart';
+ import '../firebase/i_firestore_service.dart';
+ import '../firebase/firestore_service.dart';
  
  /// Instância global do Service Locator utilizada em todo o app.
  final GetIt sl = GetIt.instance;
@@ -35,6 +40,10 @@
    sl.registerLazySingleton<LocationServiceOptimized>(
      () => LocationServiceOptimized(),
    );
+ 
+   // Firebase Services
+   sl.registerLazySingleton<IAuthService>(() => AuthService());
+   sl.registerLazySingleton<IFirestoreService>(() => FirestoreService());
  
    // Inicializa serviços que exigem preparação.
    await sl<CacheService>().init();

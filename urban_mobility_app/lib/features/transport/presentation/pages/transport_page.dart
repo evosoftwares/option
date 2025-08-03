@@ -18,6 +18,7 @@
 /// Notas:
 /// - Usa TabController com 3 abas.
 ///
+library;
 import 'package:flutter/material.dart';
 
 /// Página principal do módulo de transporte.

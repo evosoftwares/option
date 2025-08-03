@@ -109,7 +109,7 @@
      Object? error,
      StackTrace? stackTrace,
    ) {
-     // TODO: Implementar envio para Firebase Crashlytics ou similar
+     // TODO(maintainers): Implementar envio para Firebase Crashlytics ou similar
      // TEST: Validar que erros são reportados apenas em builds de release.
      // FirebaseCrashlytics.instance.recordError(error, stackTrace);
    }

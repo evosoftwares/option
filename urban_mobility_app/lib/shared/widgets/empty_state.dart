@@ -18,6 +18,8 @@
 /// - Temas (cores, tipografia) herdados do Theme.
 /// - Slots para conteúdo customizado (ex.: footer).
 ////
+library;
+
 import 'package:flutter/material.dart';
 
 /// Componente reutilizável para estados de lista vazia.
@@ -32,29 +34,6 @@ import 'package:flutter/material.dart';
 /// - [spacing]: espaçamento vertical entre blocos; padrão 12.
 /// - [iconSize]: diâmetro do avatar (em px); padrão 56.
 class EmptyState extends StatelessWidget {
-  /// Título principal do estado vazio.
-  final String title;
-
-  /// Descrição opcional com detalhes adicionais.
-  final String? description;
-
-  /// Ícone opcional que reforça o contexto do vazio.
-  final IconData? icon;
-
-  /// Rótulo do botão de ação primária (requer [onAction]).
-  final String? actionLabel;
-
-  /// Callback acionado ao pressionar o botão (se definido).
-  final VoidCallback? onAction;
-
-  /// Padding externo do componente. Se nulo, usa um padrão confortável.
-  final EdgeInsetsGeometry? padding;
-
-  /// Espaçamento vertical entre os elementos internos.
-  final double spacing;
-
-  /// Tamanho base do ícone/avatares renderizados.
-  final double iconSize;
 
   /// Construtor do EmptyState.
   ///
@@ -79,6 +58,29 @@ class EmptyState extends StatelessWidget {
     this.spacing = 12,
     this.iconSize = 56,
   });
+  /// Título principal do estado vazio.
+  final String title;
+
+  /// Descrição opcional com detalhes adicionais.
+  final String? description;
+
+  /// Ícone opcional que reforça o contexto do vazio.
+  final IconData? icon;
+
+  /// Rótulo do botão de ação primária (requer [onAction]).
+  final String? actionLabel;
+
+  /// Callback acionado ao pressionar o botão (se definido).
+  final VoidCallback? onAction;
+
+  /// Padding externo do componente. Se nulo, usa um padrão confortável.
+  final EdgeInsetsGeometry? padding;
+
+  /// Espaçamento vertical entre os elementos internos.
+  final double spacing;
+
+  /// Tamanho base do ícone/avatares renderizados.
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {

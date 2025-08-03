@@ -16,8 +16,6 @@
  /// - Aplica timeout padrão ([AppConstants.networkTimeout]) a todas as requisições.
  /// - Normaliza resposta em [ApiResponse] sem lançar exceções para fluxos esperados.
  class ApiClient {
-   final http.Client _client;
-   final AppLogger _logger;
  
    /// Cria um [ApiClient].
    ///
@@ -25,6 +23,8 @@
    /// - [_client]: cliente HTTP subjacente (pode ser mockado em testes).
    /// - [_logger]: logger para auditoria de chamadas e falhas.
    ApiClient(this._client, this._logger);
+   final http.Client _client;
+   final AppLogger _logger;
  
    /// Executa uma requisição GET.
    ///
@@ -283,14 +283,6 @@
  
  /// Wrapper de resultado de chamadas de API.
  class ApiResponse<T> {
-   /// Dados resultantes quando [isSuccess] é verdadeiro.
-   final T? data;
- 
-   /// Exceção normalizada quando ocorre erro.
-   final ApiException? error;
- 
-   /// Indica sucesso da chamada.
-   final bool isSuccess;
  
    /// Cria uma resposta de sucesso.
    ApiResponse.success(this.data)
@@ -301,14 +293,22 @@
    ApiResponse.error(this.error)
        : data = null,
          isSuccess = false;
+   /// Dados resultantes quando [isSuccess] é verdadeiro.
+   final T? data;
+ 
+   /// Exceção normalizada quando ocorre erro.
+   final ApiException? error;
+ 
+   /// Indica sucesso da chamada.
+   final bool isSuccess;
  }
  
  /// Exceção de API com mensagem amigável e status opcional.
  class ApiException implements Exception {
-   final String message;
-   final int? statusCode;
  
    ApiException(this.message, [this.statusCode]);
+   final String message;
+   final int? statusCode;
  
    @override
    String toString() => message;

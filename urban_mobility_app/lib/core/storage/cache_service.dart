@@ -13,11 +13,11 @@
  /// - Mantém cópia em memória para leituras rápidas e fallback no armazenamento.
  /// - Remove itens expirados de forma preguiçosa (on-read) e pró-ativa na inicialização.
  class CacheService {
-   final SharedPreferences _prefs;
-   final Map<String, CacheItem> _memoryCache = {};
  
    /// Cria um [CacheService] com dependência de [SharedPreferences] injetada.
    CacheService(this._prefs);
+   final SharedPreferences _prefs;
+   final Map<String, CacheItem> _memoryCache = {};
  
    /// Inicializa a limpeza de itens expirados.
    ///
@@ -165,16 +165,16 @@
  
  /// Container de item de cache com metadados de expiração.
  class CacheItem {
-   /// Valor armazenado; pode ser primitivo, Map ou List.
-   final dynamic value;
- 
-   /// Instante de expiração absoluta.
-   final DateTime expiryTime;
  
    CacheItem({
      required this.value,
      required this.expiryTime,
    });
+   /// Valor armazenado; pode ser primitivo, Map ou List.
+   final dynamic value;
+ 
+   /// Instante de expiração absoluta.
+   final DateTime expiryTime;
  
    /// Indica se o item está expirado considerando o relógio atual.
    bool get isExpired => DateTime.now().isAfter(expiryTime);

@@ -20,6 +20,7 @@
 /// - Politicas de precisão e timeouts.
 /// - Observação contínua via streams.
 ///
+library;
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
@@ -30,6 +31,14 @@ enum LocationStatus { initial, loading, success, error, permissionDenied }
 /// Resultado imutável de uma tentativa de localização.
 /// Agrega posição/endereço/erro e o estado atual.
 class LocationResult {
+
+  /// Construtor do resultado de localização.
+  const LocationResult({
+    this.position,
+    this.address,
+    this.error,
+    required this.status,
+  });
   /// Última posição obtida (pode ser nula em initial/error).
   final Position? position;
 
@@ -41,14 +50,6 @@ class LocationResult {
 
   /// Estado atual do fluxo de localização.
   final LocationStatus status;
-
-  /// Construtor do resultado de localização.
-  const LocationResult({
-    this.position,
-    this.address,
-    this.error,
-    required this.status,
-  });
 
   /// Cria uma nova instância atualizando campos específicos.
   LocationResult copyWith({
@@ -114,11 +115,15 @@ class LocationServiceOptimized extends ChangeNotifier {
   /// - Em falhas, estado passa a error com mensagem descritiva.
   ///
   Future<void> getCurrentPosition({bool forceRefresh = false}) async {
+    print('[LocationServiceOptimized] getCurrentPosition chamado - forceRefresh: $forceRefresh');
+    
     // Verifica cache válido para evitar chamadas redundantes.
     if (!forceRefresh && _isCacheValid()) {
+      print('[LocationServiceOptimized] Cache válido - retornando sem atualizar');
       return;
     }
 
+    print('[LocationServiceOptimized] Iniciando atualização de localização');
     _updateState(_state.copyWith(status: LocationStatus.loading, error: null));
 
     try {

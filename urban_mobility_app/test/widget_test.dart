@@ -1,36 +1,43 @@
-// This is a basic Flutter widget test for InDriver app.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+/*
+  [Arquivo de Teste] Smoke test do app (widget_test)
 
-import 'package:flutter/material.dart';
+  O que está sendo testado:
+  - Renderização inicial do app (smoke) e presença de elementos-chave na UI.
+
+  Dependências principais:
+  - WidgetTester (flutter_test) para construção e consulta da árvore de widgets.
+  - InDriverApp como entry point.
+
+  Cobertura de cenários:
+  - App inicializa sem exceções.
+  - Título, mensagens de boas-vindas e navegação inferior são renderizados.
+  - Seções iniciais esperadas (localização e corridas recentes) estão presentes.
+
+  Observações:
+  - Teste simples e determinístico sem interações complexas. AAA destacado.
+*/
+
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:urban_mobility_app/main.dart';
 
 void main() {
+  /// Smoke test garantindo que a árvore inicial carrega com elementos essenciais.
   testWidgets('InDriver app smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
+    // Arrange & Act: constrói o app e avança um frame
     await tester.pumpWidget(const InDriverApp());
     await tester.pump();
 
-    // Verify that the app loads with the correct title
-    expect(find.text('InDriver'), findsOneWidget);
-    
-    // Verify that the welcome message is displayed
-    expect(find.text('Encontre sua corrida!'), findsOneWidget);
-    
-    // Verify that the bottom navigation is present
+    // Assert: valida elementos de UI iniciais
+    expect(find.text('InDriver'), findsOneWidget); // título
+    expect(find.text('Encontre sua corrida!'), findsOneWidget); // mensagem de boas-vindas
+
+    // Navegação inferior
     expect(find.text('Início'), findsOneWidget);
     expect(find.text('Corridas'), findsOneWidget);
     expect(find.text('Perfil'), findsOneWidget);
 
-    // Verify that location card is present
+    // Seções da tela inicial
     expect(find.text('Sua Localização'), findsOneWidget);
-    
-    // Verify that recent trips section is present
     expect(find.text('Corridas Recentes'), findsOneWidget);
   });
 }

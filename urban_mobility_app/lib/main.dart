@@ -2,7 +2,6 @@
    Mantemos comentários curtos e seções nomeadas para leitura rápida. */
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/theme/app_theme.dart';
@@ -10,10 +9,18 @@ import 'features/home/presentation/pages/home_page.dart';
 // import 'features/map/presentation/pages/map_page.dart'; // [Removed] MapPage removida
 import 'features/rides/presentation/pages/rides_page.dart';
 import 'features/profile/presentation/pages/profile_page.dart';
-import 'shared/services/location_service.dart';
+import 'features/location_tracking/presentation/screens/location_tracking_screen.dart';
+import 'features/location_tracking/di/location_tracking_dependencies.dart';
 
-/* [App Entry] Inicializa o app. */
-void main() {
+/* [App Entry] Inicializa o app + Firebase + Service Locator. */
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart' as fo;
+import 'core/di/service_locator.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: fo.DefaultFirebaseOptions.currentPlatform);
+  await setupServiceLocator();
   runApp(const InDriverApp());
 }
 
@@ -25,7 +32,9 @@ class InDriverApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       /* [App Entry/Providers] Serviços injetados no app. */
-      providers: [ChangeNotifierProvider(create: (_) => LocationService())],
+      providers: [
+        ...LocationTrackingDependencies.getProviders(),
+      ],
       child: MaterialApp.router(
         title: 'InDriver - Defina seu preço!',
         debugShowCheckedModeBanner: false,
@@ -48,6 +57,7 @@ final GoRouter _router = GoRouter(
     // GoRoute(path: '/map', builder: (context, state) => const MapPage()), // [Removed] rota /map
     GoRoute(path: '/rides', builder: (context, state) => const RidesPage()),
     GoRoute(path: '/profile', builder: (context, state) => const ProfilePage()),
+    GoRoute(path: '/location-tracking', builder: (context, state) => const LocationTrackingScreen()),
   ],
 );
 

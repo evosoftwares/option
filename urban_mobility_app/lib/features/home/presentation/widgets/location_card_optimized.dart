@@ -16,6 +16,7 @@
 /// Notas:
 /// - Usa Selector para reduzir rebuilds; sem lógica de navegação.
 ///
+library;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../shared/services/location_service_optimized.dart';
@@ -110,16 +111,16 @@ class _LoadingState extends StatelessWidget {
 
 /// Estado visual de erro/permissão negada com ação de tentar novamente.
 class _ErrorState extends StatelessWidget {
-  /// Mensagem de erro legível ao usuário.
-  final String error;
-
-  /// Callback para solicitar localização novamente.
-  final VoidCallback onRetry;
 
   const _ErrorState({
     required this.error,
     required this.onRetry,
   });
+  /// Mensagem de erro legível ao usuário.
+  final String error;
+
+  /// Callback para solicitar localização novamente.
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -145,10 +146,10 @@ class _ErrorState extends StatelessWidget {
 
 /// Estado visual de sucesso mostrando o endereço atual.
 class _SuccessState extends StatelessWidget {
-  /// Endereço formatado.
-  final String address;
 
   const _SuccessState({required this.address});
+  /// Endereço formatado.
+  final String address;
 
   @override
   Widget build(BuildContext context) {

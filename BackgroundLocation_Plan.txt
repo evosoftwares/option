@@ -1,0 +1,1487 @@
+# Plano Técnico Detalhado - Sistema de Rastreamento de Localização em Background
+## Arquitetura Híbrida: Firebase (Principal) + Supabase (Tracking Tempo Real)
+
+## 1. Arquitetura Técnica Core
+
+### 1.1 Stack Tecnológico
+```yaml
+backend_principal:
+  database: Firebase Firestore
+  auth: Firebase Auth
+  storage: Firebase Storage
+  functions: Cloud Functions (Node.js)
+  
+backend_tracking:
+  database: Supabase PostgreSQL (apenas localização)
+  realtime: Supabase Realtime
+  edge_functions: Supabase Edge Functions
+  
+mobile:
+  framework: Flutter 3.x
+  state: Riverpod 2.0
+  local_db: Isar 3.x
+  background:
+    android: WorkManager + ForegroundService
+    ios: BGTaskScheduler + CoreLocation
+    
+integração:
+  sync: Cloud Functions + Supabase Webhooks
+  auth: JWT compartilhado Firebase->Supabase
+```
+
+### 1.2 Estrutura Supabase (Apenas Tracking)
+
+```sql
+-- Tabela minimalista para tracking em tempo real
+CREATE TABLE realtime_locations (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  firebase_uid TEXT NOT NULL,
+  lat DOUBLE PRECISION NOT NULL,
+  lng DOUBLE PRECISION NOT NULL,
+  accuracy FLOAT NOT NULL,
+  recorded_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  
+  -- Índices otimizados para queries em tempo real
+  INDEX idx_user_time (firebase_uid, recorded_at DESC),
+  INDEX idx_created (created_at)
+);
+
+-- Tabela de sessões de tracking ativas
+CREATE TABLE tracking_sessions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  firebase_uid TEXT NOT NULL UNIQUE,
+  started_at TIMESTAMPTZ DEFAULT NOW(),
+  last_update TIMESTAMPTZ DEFAULT NOW(),
+  is_active BOOLEAN DEFAULT true,
+  device_info JSONB,
+  
+  INDEX idx_active (is_active, last_update)
+);
+
+-- View materializada para última posição
+CREATE MATERIALIZED VIEW current_positions AS
+SELECT DISTINCT ON (firebase_uid)
+  firebase_uid,
+  lat,
+  lng,
+  accuracy,
+  recorded_at
+FROM realtime_locations
+ORDER BY firebase_uid, recorded_at DESC;
+
+-- Função para limpar dados antigos (manter apenas 24h)
+CREATE OR REPLACE FUNCTION cleanup_old_locations()
+RETURNS void AS $$
+BEGIN
+  DELETE FROM realtime_locations 
+  WHERE created_at < NOW() - INTERVAL '24 hours';
+  
+  REFRESH MATERIALIZED VIEW CONCURRENTLY current_positions;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Agendar limpeza a cada hora
+SELECT cron.schedule('cleanup-locations', '0 * * * *', 'SELECT cleanup_old_locations()');
+```
+
+## 2. Implementação Mobile (Flutter)
+
+### 2.1 Serviço de Localização Principal
+
+```dart
+// lib/services/location/location_service.dart
+import 'package:geolocator/geolocator.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:isar/isar.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+class LocationService {
+  static const String channelId = 'location_tracking';
+  static const int notificationId = 888;
+  
+  final Isar _isar;
+  final SupabaseClient _supabase;
+  final FirebaseFirestore _firestore;
+  
+  StreamSubscription<Position>? _positionStream;
+  Timer? _batchTimer;
+  final _locationBuffer = <LocationPoint>[];
+  
+  // Configurações adaptativas
+  LocationSettings _currentSettings = LocationSettings(
+    accuracy: LocationAccuracy.high,
+    distanceFilter: 10, // metros
+    intervalDuration: Duration(seconds: 5),
+  );
+  
+  Future<void> initializeService() async {
+    final service = FlutterBackgroundService();
+    
+    await service.configure(
+      androidConfiguration: AndroidConfiguration(
+        onStart: onStart,
+        autoStart: false,
+        isForegroundMode: true,
+        notificationChannelId: channelId,
+        initialNotificationTitle: 'Rastreamento Ativo',
+        initialNotificationContent: 'Coletando localização para sua segurança',
+        foregroundServiceNotificationId: notificationId,
+      ),
+      iosConfiguration: IosConfiguration(
+        autoStart: false,
+        onForeground: onStart,
+        onBackground: onIosBackground,
+      ),
+    );
+  }
+  
+  @pragma('vm:entry-point')
+  static Future<void> onStart(ServiceInstance service) async {
+    // Inicializar dependências
+    await _initializeDependencies();
+    
+    // Android: criar notificação persistente
+    if (service is AndroidServiceInstance) {
+      service.on('setAsForeground').listen((event) {
+        service.setAsForegroundService();
+      });
+      
+      service.on('setAsBackground').listen((event) {
+        service.setAsBackgroundService();
+      });
+    }
+    
+    // Configurar listeners
+    service.on('stopService').listen((event) {
+      service.stopSelf();
+    });
+    
+    // Iniciar tracking
+    final locationService = LocationService(
+      isar: await Isar.open([LocationPointSchema]),
+      supabase: Supabase.instance.client,
+      firestore: FirebaseFirestore.instance,
+    );
+    
+    await locationService.startTracking();
+  }
+  
+  Future<void> startTracking() async {
+    // Verificar permissões
+    final permission = await _checkPermissions();
+    if (!permission) return;
+    
+    // Criar sessão no Supabase
+    await _createTrackingSession();
+    
+    // Configurar stream de localização
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: _currentSettings,
+    ).listen(
+      _onLocationUpdate,
+      onError: _onLocationError,
+    );
+    
+    // Iniciar batch timer para sincronização
+    _batchTimer = Timer.periodic(
+      Duration(seconds: 30),
+      (_) => _syncBatchToSupabase(),
+    );
+  }
+  
+  void _onLocationUpdate(Position position) async {
+    // Adaptar precisão baseado na atividade
+    await _adaptLocationSettings(position);
+    
+    // Criar ponto de localização
+    final locationPoint = LocationPoint()
+      ..lat = position.latitude
+      ..lng = position.longitude
+      ..accuracy = position.accuracy
+      ..altitude = position.altitude
+      ..speed = position.speed
+      ..heading = position.heading
+      ..recordedAt = DateTime.now()
+      ..batteryLevel = await _getBatteryLevel()
+      ..activityType = await _detectActivity(position);
+    
+    // Salvar localmente no Isar
+    await _isar.writeTxn(() async {
+      await _isar.locationPoints.put(locationPoint);
+    });
+    
+    // Adicionar ao buffer para envio em batch
+    _locationBuffer.add(locationPoint);
+    
+    // Envio imediato ao Supabase se for ponto significativo
+    if (_isSignificantChange(locationPoint)) {
+      await _sendToSupabase(locationPoint);
+    }
+  }
+  
+  Future<void> _adaptLocationSettings(Position position) async {
+    // Lógica adaptativa baseada em velocidade e bateria
+    final speed = position.speed ?? 0;
+    final battery = await _getBatteryLevel();
+    
+    LocationSettings newSettings;
+    
+    if (battery < 20) {
+      // Modo economia extrema
+      newSettings = LocationSettings(
+        accuracy: LocationAccuracy.low,
+        distanceFilter: 100,
+        intervalDuration: Duration(minutes: 5),
+      );
+    } else if (speed > 25) {
+      // Veículo em movimento
+      newSettings = LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 50,
+        intervalDuration: Duration(seconds: 10),
+      );
+    } else if (speed > 1.5) {
+      // Caminhando
+      newSettings = LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10,
+        intervalDuration: Duration(seconds: 30),
+      );
+    } else {
+      // Parado
+      newSettings = LocationSettings(
+        accuracy: LocationAccuracy.medium,
+        distanceFilter: 20,
+        intervalDuration: Duration(minutes: 2),
+      );
+    }
+    
+    if (newSettings != _currentSettings) {
+      _currentSettings = newSettings;
+      // Reiniciar stream com novas configurações
+      await _restartLocationStream();
+    }
+  }
+  
+  Future<void> _sendToSupabase(LocationPoint point) async {
+    try {
+      await _supabase.from('realtime_locations').insert({
+        'firebase_uid': FirebaseAuth.instance.currentUser!.uid,
+        'lat': point.lat,
+        'lng': point.lng,
+        'accuracy': point.accuracy,
+        'recorded_at': point.recordedAt.toIso8601String(),
+      });
+      
+      // Atualizar última posição na sessão
+      await _supabase.from('tracking_sessions')
+        .update({'last_update': DateTime.now().toIso8601String()})
+        .eq('firebase_uid', FirebaseAuth.instance.currentUser!.uid);
+        
+    } catch (e) {
+      // Falha no envio, manter no buffer local
+      print('Erro ao enviar para Supabase: $e');
+    }
+  }
+  
+  Future<void> _syncBatchToSupabase() async {
+    if (_locationBuffer.isEmpty) return;
+    
+    // Comprimir trajeto antes de enviar
+    final compressed = _compressTrajectory(_locationBuffer);
+    
+    try {
+      // Enviar batch para Supabase
+      await _supabase.from('realtime_locations').insert(
+        compressed.map((point) => {
+          'firebase_uid': FirebaseAuth.instance.currentUser!.uid,
+          'lat': point.lat,
+          'lng': point.lng,
+          'accuracy': point.accuracy,
+          'recorded_at': point.recordedAt.toIso8601String(),
+        }).toList()
+      );
+      
+      // Limpar buffer após sucesso
+      _locationBuffer.clear();
+      
+      // Também sincronizar trajeto completo com Firebase
+      await _syncToFirebase(compressed);
+      
+    } catch (e) {
+      print('Erro no sync batch: $e');
+      // Manter dados no buffer para próxima tentativa
+    }
+  }
+  
+  List<LocationPoint> _compressTrajectory(List<LocationPoint> points) {
+    // Implementar algoritmo Douglas-Peucker
+    if (points.length < 3) return points;
+    
+    const double epsilon = 10.0; // tolerância em metros
+    return _douglasPeucker(points, epsilon);
+  }
+  
+  List<LocationPoint> _douglasPeucker(List<LocationPoint> points, double epsilon) {
+    if (points.length < 3) return points;
+    
+    // Encontrar ponto mais distante da linha entre primeiro e último
+    double maxDistance = 0;
+    int maxIndex = 0;
+    
+    for (int i = 1; i < points.length - 1; i++) {
+      double distance = _perpendicularDistance(
+        points[i], 
+        points.first, 
+        points.last
+      );
+      
+      if (distance > maxDistance) {
+        maxDistance = distance;
+        maxIndex = i;
+      }
+    }
+    
+    // Se a distância máxima é maior que epsilon, recursivamente simplificar
+    if (maxDistance > epsilon) {
+      final firstPart = _douglasPeucker(
+        points.sublist(0, maxIndex + 1), 
+        epsilon
+      );
+      final secondPart = _douglasPeucker(
+        points.sublist(maxIndex), 
+        epsilon
+      );
+      
+      return [...firstPart.sublist(0, firstPart.length - 1), ...secondPart];
+    } else {
+      return [points.first, points.last];
+    }
+  }
+}
+```
+
+### 2.2 Integração com Firebase
+
+```dart
+// lib/services/location/firebase_sync_service.dart
+class FirebaseSyncService {
+  final FirebaseFirestore _firestore;
+  final FirebaseAuth _auth;
+  
+  // Sincronizar trajeto completo periodicamente
+  Future<void> syncTrajectoryToFirebase(List<LocationPoint> points) async {
+    final userId = _auth.currentUser!.uid;
+    final batch = _firestore.batch();
+    
+    // Criar documento de sessão se não existir
+    final sessionId = await _getOrCreateSession();
+    
+    // Agrupar pontos por chunks de 500 (limite do batch write)
+    final chunks = points.chunk(500);
+    
+    for (final chunk in chunks) {
+      final compressedData = {
+        'points': chunk.map((p) => {
+          'lat': p.lat,
+          'lng': p.lng,
+          't': p.recordedAt.millisecondsSinceEpoch,
+          'a': p.accuracy.round(), // accuracy em metros
+        }).toList(),
+        'metadata': {
+          'compressed': true,
+          'algorithm': 'douglas-peucker',
+          'originalCount': points.length,
+        }
+      };
+      
+      // Usar subcollection para melhor performance
+      batch.set(
+        _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('location_sessions')
+          .doc(sessionId)
+          .collection('chunks')
+          .doc(),
+        compressedData,
+      );
+    }
+    
+    await batch.commit();
+  }
+  
+  // Sincronizar métricas agregadas
+  Future<void> syncMetricsToFirebase(TrackingMetrics metrics) async {
+    await _firestore
+      .collection('users')
+      .doc(_auth.currentUser!.uid)
+      .collection('tracking_metrics')
+      .doc(DateFormat('yyyy-MM-dd').format(DateTime.now()))
+      .set({
+        'totalDistance': FieldValue.increment(metrics.distance),
+        'totalDuration': FieldValue.increment(metrics.duration.inSeconds),
+        'batteryConsumed': FieldValue.increment(metrics.batteryUsed),
+        'pointsCollected': FieldValue.increment(metrics.pointsCount),
+        'lastUpdate': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+  }
+}
+```
+
+### 2.3 Sistema de Permissões Progressivas
+
+```dart
+// lib/services/permissions/permission_manager.dart
+class PermissionManager {
+  static const String _permissionStateKey = 'permission_state';
+  
+  final SharedPreferences _prefs;
+  final Analytics _analytics;
+  
+  // Estados de permissão
+  enum PermissionState {
+    notRequested,
+    whenInUseGranted,
+    alwaysGranted,
+    denied,
+    deniedForever,
+  }
+  
+  Future<bool> requestLocationPermissions({
+    required PermissionLevel level,
+    required BuildContext context,
+  }) async {
+    // Verificar estado atual
+    final currentState = await _getCurrentPermissionState();
+    
+    // Analytics
+    _analytics.logEvent('permission_request', {
+      'level': level.toString(),
+      'current_state': currentState.toString(),
+    });
+    
+    switch (level) {
+      case PermissionLevel.whenInUse:
+        return _requestWhenInUse(context);
+      case PermissionLevel.always:
+        return _requestAlways(context);
+    }
+  }
+  
+  Future<bool> _requestWhenInUse(BuildContext context) async {
+    // Mostrar explicação educacional
+    final shouldProceed = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (_) => PermissionEducationSheet(
+        title: 'Permissão de Localização',
+        description: 'Precisamos acessar sua localização enquanto '
+            'você usa o app para fornecer rotas e informações precisas.',
+        benefits: [
+          'Navegação em tempo real',
+          'Alertas de trânsito',
+          'Sugestões baseadas em localização',
+        ],
+        icon: Icons.location_on,
+      ),
+    ) ?? false;
+    
+    if (!shouldProceed) return false;
+    
+    // Solicitar permissão
+    final status = await Permission.locationWhenInUse.request();
+    
+    // Salvar estado
+    await _savePermissionState(status);
+    
+    // Analytics
+    _analytics.logEvent('permission_response', {
+      'level': 'when_in_use',
+      'granted': status.isGranted,
+    });
+    
+    return status.isGranted;
+  }
+  
+  Future<bool> _requestAlways(BuildContext context) async {
+    // Verificar se whenInUse já foi concedido
+    final whenInUseStatus = await Permission.locationWhenInUse.status;
+    if (!whenInUseStatus.isGranted) {
+      // Precisa do whenInUse primeiro
+      final granted = await _requestWhenInUse(context);
+      if (!granted) return false;
+    }
+    
+    // Verificar se é o momento apropriado (usuário engajado)
+    final engagementScore = await _calculateEngagementScore();
+    if (engagementScore < 0.7) {
+      // Não é o momento ideal, adiar
+      _analytics.logEvent('permission_always_deferred', {
+        'engagement_score': engagementScore,
+      });
+      return false;
+    }
+    
+    // Mostrar explicação contextualizada
+    final shouldProceed = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (_) => AlwaysPermissionEducationSheet(
+        currentJourney: _getCurrentJourneyContext(),
+        benefits: [
+          'Continuar navegação com tela desligada',
+          'Alertas de segurança em segundo plano',
+          'Histórico completo de viagens',
+          'Compartilhamento de localização com contatos',
+        ],
+      ),
+    ) ?? false;
+    
+    if (!shouldProceed) return false;
+    
+    // iOS: precisa de fluxo especial
+    if (Platform.isIOS) {
+      return _requestAlwaysIOS(context);
+    }
+    
+    // Android: solicitar diretamente
+    final status = await Permission.locationAlways.request();
+    
+    // Salvar estado
+    await _savePermissionState(status);
+    
+    return status.isGranted;
+  }
+  
+  Future<bool> _requestAlwaysIOS(BuildContext context) async {
+    // iOS requer solicitação em duas etapas
+    
+    // Passo 1: Solicitar provisional always
+    final provisionalStatus = await Permission.location.request();
+    
+    if (!provisionalStatus.isGranted) return false;
+    
+    // Passo 2: Após algum uso, solicitar upgrade para always
+    Timer(Duration(seconds: 5), () async {
+      // Mostrar prompt nativo
+      final alwaysStatus = await Permission.locationAlways.request();
+      
+      if (!alwaysStatus.isGranted) {
+        // Oferecer abrir configurações
+        final openSettings = await showDialog<bool>(
+          context: context,
+          builder: (_) => SettingsRedirectDialog(),
+        ) ?? false;
+        
+        if (openSettings) {
+          await openAppSettings();
+        }
+      }
+    });
+    
+    return true;
+  }
+}
+```
+
+## 3. Backend - Integração Firebase-Supabase
+
+### 3.1 Cloud Functions para Sincronização
+
+```typescript
+// functions/src/location/sync-to-supabase.ts
+import * as functions from 'firebase-functions';
+import { createClient } from '@supabase/supabase-js';
+import * as jwt from 'jsonwebtoken';
+
+const supabase = createClient(
+  functions.config().supabase.url,
+  functions.config().supabase.service_key
+);
+
+// Webhook para sincronizar usuários Firebase -> Supabase
+export const onUserCreated = functions.auth.user().onCreate(async (user) => {
+  try {
+    // Criar JWT customizado para Supabase
+    const supabaseToken = jwt.sign(
+      {
+        sub: user.uid,
+        email: user.email,
+        role: 'authenticated',
+        aud: 'authenticated',
+        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 365), // 1 ano
+      },
+      functions.config().supabase.jwt_secret
+    );
+    
+    // Criar entrada na tabela de tracking_sessions
+    await supabase.from('tracking_sessions').insert({
+      firebase_uid: user.uid,
+      is_active: false,
+      device_info: {
+        platform: user.customClaims?.platform || 'unknown',
+      },
+    });
+    
+    // Salvar token no Firestore para uso futuro
+    await admin.firestore()
+      .collection('users')
+      .doc(user.uid)
+      .set({
+        supabaseToken: supabaseToken,
+        supabaseTokenCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      
+  } catch (error) {
+    console.error('Error syncing user to Supabase:', error);
+  }
+});
+
+// Function para limpar dados antigos do Supabase
+export const cleanupSupabaseLocations = functions.pubsub
+  .schedule('every 6 hours')
+  .onRun(async (context) => {
+    try {
+      // Buscar sessões inativas há mais de 24h
+      const { data: inactiveSessions } = await supabase
+        .from('tracking_sessions')
+        .select('firebase_uid')
+        .eq('is_active', false)
+        .lt('last_update', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+      
+      if (inactiveSessions && inactiveSessions.length > 0) {
+        // Deletar localizações antigas
+        for (const session of inactiveSessions) {
+          await supabase
+            .from('realtime_locations')
+            .delete()
+            .eq('firebase_uid', session.firebase_uid)
+            .lt('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+        }
+      }
+      
+      // Atualizar view materializada
+      await supabase.rpc('refresh_current_positions');
+      
+    } catch (error) {
+      console.error('Cleanup error:', error);
+    }
+  });
+
+// Webhook Supabase -> Firebase para eventos importantes
+export const supabaseWebhook = functions.https.onRequest(async (req, res) => {
+  // Validar assinatura do webhook
+  const signature = req.headers['x-supabase-signature'];
+  if (!validateSupabaseSignature(req.body, signature)) {
+    return res.status(401).send('Invalid signature');
+  }
+  
+  const { type, record, old_record } = req.body;
+  
+  switch (type) {
+    case 'INSERT':
+      // Nova localização inserida
+      if (record.table === 'realtime_locations') {
+        await handleNewLocation(record);
+      }
+      break;
+      
+    case 'UPDATE':
+      // Sessão atualizada
+      if (record.table === 'tracking_sessions') {
+        await handleSessionUpdate(record, old_record);
+      }
+      break;
+  }
+  
+  res.status(200).send('OK');
+});
+
+async function handleNewLocation(location: any) {
+  // Verificar geofences
+  const geofences = await getActiveGeofences(location.firebase_uid);
+  
+  for (const geofence of geofences) {
+    const distance = calculateDistance(
+      location.lat,
+      location.lng,
+      geofence.lat,
+      geofence.lng
+    );
+    
+    if (distance <= geofence.radius) {
+      // Disparar evento de entrada na geofence
+      await triggerGeofenceEvent(location.firebase_uid, geofence.id, 'enter');
+    }
+  }
+  
+  // Detectar paradas prolongadas
+  await detectStops(location);
+}
+```
+
+### 3.2 Edge Functions Supabase para Consultas Otimizadas
+
+```typescript
+// supabase/functions/get-live-locations/index.ts
+import { serve } from 'https://deno.land/std@0.131.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1'
+
+serve(async (req) => {
+  try {
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      {
+        global: {
+          headers: { Authorization: req.headers.get('Authorization')! },
+        },
+      }
+    )
+    
+    // Extrair parâmetros
+    const { userIds, bounds, maxAge = 300 } = await req.json()
+    
+    let query = supabaseClient
+      .from('current_positions')
+      .select('*')
+      .in('firebase_uid', userIds)
+      .gte('recorded_at', new Date(Date.now() - maxAge * 1000).toISOString())
+    
+    // Aplicar bounds se fornecido
+    if (bounds) {
+      query = query
+        .gte('lat', bounds.south)
+        .lte('lat', bounds.north)
+        .gte('lng', bounds.west)
+        .lte('lng', bounds.east)
+    }
+    
+    const { data, error } = await query
+    
+    if (error) throw error
+    
+    return new Response(JSON.stringify({ 
+      locations: data,
+      timestamp: new Date().toISOString()
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+    
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+})
+```
+
+## 4. Sistema de Compartilhamento em Tempo Real
+
+### 4.1 Widget de Visualização de Localização
+
+```dart
+// lib/features/tracking/widgets/live_location_map.dart
+class LiveLocationMap extends ConsumerStatefulWidget {
+  final List<String> userIds;
+  final bool showMyLocation;
+  
+  @override
+  _LiveLocationMapState createState() => _LiveLocationMapState();
+}
+
+class _LiveLocationMapState extends ConsumerState<LiveLocationMap> {
+  late GoogleMapController _mapController;
+  final Map<String, Marker> _markers = {};
+  StreamSubscription? _locationSubscription;
+  Timer? _refreshTimer;
+  
+  @override
+  void initState() {
+    super.initState();
+    _initializeRealtimeSubscription();
+    _startPeriodicRefresh();
+  }
+  
+  void _initializeRealtimeSubscription() {
+    final supabase = ref.read(supabaseProvider);
+    
+    // Subscrever a mudanças em tempo real
+    _locationSubscription = supabase
+      .from('realtime_locations')
+      .on(SupabaseEventTypes.insert, (payload) {
+        if (widget.userIds.contains(payload.newRecord['firebase_uid'])) {
+          _updateMarker(payload.newRecord);
+        }
+      })
+      .subscribe();
+  }
+  
+  void _startPeriodicRefresh() {
+    // Buscar posições atuais a cada 5 segundos
+    _refreshTimer = Timer.periodic(Duration(seconds: 5), (_) {
+      _fetchCurrentPositions();
+    });
+    
+    // Buscar imediatamente
+    _fetchCurrentPositions();
+  }
+  
+  Future<void> _fetchCurrentPositions() async {
+    try {
+      final response = await ref.read(supabaseProvider).functions.invoke(
+        'get-live-locations',
+        body: {
+          'userIds': widget.userIds,
+          'maxAge': 300, // 5 minutos
+        },
+      );
+      
+      final locations = response.data['locations'] as List;
+      
+      for (final location in locations) {
+        await _updateMarker(location);
+      }
+      
+      // Animar câmera para mostrar todos os marcadores
+      if (_markers.isNotEmpty) {
+        _animateCameraToFitMarkers();
+      }
+      
+    } catch (e) {
+      print('Erro ao buscar localizações: $e');
+    }
+  }
+  
+  Future<void> _updateMarker(Map<String, dynamic> location) async {
+    final userId = location['firebase_uid'];
+    final position = LatLng(location['lat'], location['lng']);
+    
+    // Buscar informações do usuário no Firebase
+    final userInfo = await _getUserInfo(userId);
+    
+    // Criar/atualizar marcador customizado
+    final marker = Marker(
+      markerId: MarkerId(userId),
+      position: position,
+      infoWindow: InfoWindow(
+        title: userInfo.displayName,
+        snippet: _formatLastUpdate(location['recorded_at']),
+      ),
+      icon: await _createCustomMarker(userInfo),
+      onTap: () => _onMarkerTapped(userId),
+    );
+    
+    setState(() {
+      _markers[userId] = marker;
+    });
+    
+    // Animar marcador se já existia
+    if (_markers.containsKey(userId)) {
+      _animateMarkerMovement(userId, position);
+    }
+  }
+  
+  Future<BitmapDescriptor> _createCustomMarker(UserInfo userInfo) async {
+    // Criar marcador customizado com avatar do usuário
+    final pictureRecorder = ui.PictureRecorder();
+    final canvas = Canvas(pictureRecorder);
+    
+    // Desenhar círculo com borda
+    final paint = Paint()
+      ..color = Theme.of(context).primaryColor
+      ..style = PaintingStyle.fill;
+      
+    canvas.drawCircle(Offset(50, 50), 50, paint);
+    
+    // Desenhar avatar se disponível
+    if (userInfo.avatarUrl != null) {
+      final image = await _loadNetworkImage(userInfo.avatarUrl!);
+      canvas.drawImageRect(
+        image,
+        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+        Rect.fromLTWH(10, 10, 80, 80),
+        Paint(),
+      );
+    }
+    
+    // Converter para bitmap
+    final picture = pictureRecorder.endRecording();
+    final img = await picture.toImage(100, 100);
+    final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+    
+    return BitmapDescriptor.fromBytes(byteData!.buffer.asUint8List());
+  }
+}
+```
+
+### 4.2 Sistema de Permissões de Compartilhamento
+
+```dart
+// lib/features/sharing/services/sharing_permission_service.dart
+class SharingPermissionService {
+  final FirebaseFirestore _firestore;
+  final SupabaseClient _supabase;
+  
+  // Conceder permissão de visualização
+  Future<void> grantLocationAccess({
+    required String toUserId,
+    required Duration duration,
+    required LocationAccessLevel level,
+  }) async {
+    final fromUserId = FirebaseAuth.instance.currentUser!.uid;
+    
+    // Criar permissão no Firebase
+    final permission = LocationPermission(
+      id: Uuid().v4(),
+      fromUserId: fromUserId,
+      toUserId: toUserId,
+      level: level,
+      grantedAt: DateTime.now(),
+      expiresAt: DateTime.now().add(duration),
+      isActive: true,
+    );
+    
+    await _firestore
+      .collection('location_permissions')
+      .doc(permission.id)
+      .set(permission.toMap());
+    
+    // Notificar usuário via FCM
+    await _sendPermissionNotification(toUserId, permission);
+    
+    // Criar entrada no Supabase para acesso rápido
+    await _supabase.from('location_access').insert({
+      'permission_id': permission.id,
+      'viewer_uid': toUserId,
+      'tracked_uid': fromUserId,
+      'level': level.toString(),
+      'expires_at': permission.expiresAt.toIso8601String(),
+    });
+  }
+  
+  // Verificar permissão antes de mostrar localização
+  Future<bool> canViewLocation(String targetUserId) async {
+    final viewerId = FirebaseAuth.instance.currentUser!.uid;
+    
+    // Verificar no cache local primeiro
+    final cachedPermission = await _checkLocalCache(viewerId, targetUserId);
+    if (cachedPermission != null) return cachedPermission;
+    
+    // Verificar no Supabase (rápido)
+    final { data } = await _supabase
+      .from('location_access')
+      .select()
+      .eq('viewer_uid', viewerId)
+      .eq('tracked_uid', targetUserId)
+      .gte('expires_at', DateTime.now().toIso8601String())
+      .single();
+    
+    if (data != null) {
+      // Cachear resultado
+      await _cachePermission(viewerId, targetUserId, true);
+      return true;
+    }
+    
+    return false;
+  }
+}
+```
+
+## 5. Otimizações de Performance e Bateria
+
+### 5.1 Sistema Adaptativo de Coleta
+
+```dart
+// lib/services/location/adaptive_tracking_manager.dart
+class AdaptiveTrackingManager {
+  final BatteryInfoPlugin _battery = BatteryInfoPlugin();
+  final ActivityRecognition _activityRecognition = ActivityRecognition();
+  
+  TrackingProfile _currentProfile = TrackingProfile.balanced;
+  StreamSubscription? _activitySubscription;
+  
+  // Perfis de tracking pré-definidos
+  static const Map<TrackingProfile, LocationSettings> profiles = {
+    TrackingProfile.highAccuracy: LocationSettings(
+      accuracy: LocationAccuracy.best,
+      distanceFilter: 5,
+      intervalDuration: Duration(seconds: 1),
+    ),
+    TrackingProfile.balanced: LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 10,
+      intervalDuration: Duration(seconds: 10),
+    ),
+    TrackingProfile.powerSave: LocationSettings(
+      accuracy: LocationAccuracy.medium,
+      distanceFilter: 50,
+      intervalDuration: Duration(minutes: 1),
+    ),
+    TrackingProfile.ultra_powerSave: LocationSettings(
+      accuracy: LocationAccuracy.low,
+      distanceFilter: 100,
+      intervalDuration: Duration(minutes: 5),
+    ),
+  };
+  
+  Future<void> initialize() async {
+    // Monitorar atividade do usuário
+    _activitySubscription = _activityRecognition
+      .activityStream
+      .listen(_onActivityChanged);
+    
+    // Monitorar bateria
+    Timer.periodic(Duration(minutes: 1), (_) => _checkBatteryAndAdjust());
+  }
+  
+  void _onActivityChanged(ActivityEvent event) {
+    // Ajustar perfil baseado na atividade
+    switch (event.type) {
+      case ActivityType.IN_VEHICLE:
+        _switchProfile(TrackingProfile.highAccuracy);
+        break;
+      case ActivityType.ON_BICYCLE:
+      case ActivityType.RUNNING:
+        _switchProfile(TrackingProfile.balanced);
+        break;
+      case ActivityType.WALKING:
+        _switchProfile(TrackingProfile.balanced);
+        break;
+      case ActivityType.STILL:
+        _switchProfile(TrackingProfile.powerSave);
+        break;
+      default:
+        _switchProfile(TrackingProfile.balanced);
+    }
+  }
+  
+  Future<void> _checkBatteryAndAdjust() async {
+    final batteryLevel = await _battery.batteryLevel;
+    final isCharging = await _battery.isCharging;
+    
+    if (isCharging) {
+      // Pode usar mais bateria quando carregando
+      return;
+    }
+    
+    if (batteryLevel != null) {
+      if (batteryLevel < 10) {
+        _switchProfile(TrackingProfile.ultra_powerSave);
+      } else if (batteryLevel < 20) {
+        _switchProfile(TrackingProfile.powerSave);
+      } else if (batteryLevel < 40 && _currentProfile == TrackingProfile.highAccuracy) {
+        _switchProfile(TrackingProfile.balanced);
+      }
+    }
+  }
+  
+  void _switchProfile(TrackingProfile newProfile) {
+    if (newProfile != _currentProfile) {
+      _currentProfile = newProfile;
+      
+      // Notificar mudança
+      GetIt.I<EventBus>().fire(TrackingProfileChangedEvent(newProfile));
+      
+      // Analytics
+      FirebaseAnalytics.instance.logEvent(
+        name: 'tracking_profile_changed',
+        parameters: {
+          'from': _currentProfile.toString(),
+          'to': newProfile.toString(),
+          'battery_level': _battery.batteryLevel,
+        },
+      );
+    }
+  }
+}
+```
+
+### 5.2 Compressão e Otimização de Dados
+
+```dart
+// lib/services/location/trajectory_compressor.dart
+class TrajectoryCompressor {
+  // Comprimir usando múltiplos algoritmos
+  static CompressedTrajectory compress(List<LocationPoint> points) {
+    // 1. Remover duplicatas (mesmo local)
+    final deduplicated = _removeDuplicates(points);
+    
+    // 2. Aplicar Douglas-Peucker
+    final simplified = _douglasPeucker(deduplicated, epsilon: 10.0);
+    
+    // 3. Comprimir timestamps usando delta encoding
+    final compressedTimestamps = _deltaEncodeTimestamps(simplified);
+    
+    // 4. Quantizar coordenadas (reduzir precisão desnecessária)
+    final quantized = _quantizeCoordinates(simplified, precision: 5);
+    
+    // 5. Comprimir com zlib
+    final jsonData = jsonEncode({
+      'points': quantized.map((p) => [
+        p.lat,
+        p.lng,
+        p.accuracy.round(),
+      ]).toList(),
+      'timestamps': compressedTimestamps,
+      'metadata': {
+        'original_count': points.length,
+        'compressed_count': quantized.length,
+        'compression_ratio': (1 - quantized.length / points.length),
+        'algorithms': ['dedup', 'douglas-peucker', 'delta', 'quantize', 'zlib'],
+      }
+    });
+    
+    final compressed = zlib.encode(utf8.encode(jsonData));
+    
+    return CompressedTrajectory(
+      data: compressed,
+      originalSize: points.length,
+      compressedSize: compressed.length,
+      compressionRatio: compressed.length / (points.length * 24), // ~24 bytes per point
+    );
+  }
+  
+  static List<LocationPoint> _removeDuplicates(List<LocationPoint> points) {
+    if (points.isEmpty) return points;
+    
+    final result = <LocationPoint>[points.first];
+    
+    for (int i = 1; i < points.length; i++) {
+      final prev = result.last;
+      final curr = points[i];
+      
+      // Considerar duplicata se distância < 5m e tempo < 30s
+      final distance = Geolocator.distanceBetween(
+        prev.lat, prev.lng,
+        curr.lat, curr.lng,
+      );
+      
+      final timeDiff = curr.recordedAt.difference(prev.recordedAt).inSeconds;
+      
+      if (distance > 5 || timeDiff > 30) {
+        result.add(curr);
+      }
+    }
+    
+    return result;
+  }
+  
+  static List<double> _quantizeCoordinates(
+    List<LocationPoint> points, 
+    {required int precision}
+  ) {
+    // Reduzir precisão para economizar espaço
+    // 5 decimais = precisão de ~1.1m
+    final multiplier = pow(10, precision);
+    
+    return points.map((p) => LocationPoint()
+      ..lat = (p.lat * multiplier).round() / multiplier
+      ..lng = (p.lng * multiplier).round() / multiplier
+      ..accuracy = p.accuracy
+      ..recordedAt = p.recordedAt
+    ).toList();
+  }
+}
+```
+
+## 6. Sistema de Monitoramento e Observabilidade
+
+### 6.1 Telemetria Detalhada
+
+```dart
+// lib/services/monitoring/tracking_telemetry.dart
+class TrackingTelemetry {
+  final FirebaseAnalytics _analytics;
+  final FirebasePerformance _performance;
+  final Sentry _sentry;
+  
+  // Métricas em tempo real
+  final _metrics = TrackingMetrics();
+  Timer? _metricsTimer;
+  
+  void startSession(String sessionId) {
+    _metrics.sessionId = sessionId;
+    _metrics.startTime = DateTime.now();
+    
+    // Trace de performance
+    final trace = _performance.newTrace('location_tracking_session');
+    trace.start();
+    
+    // Enviar métricas a cada minuto
+    _metricsTimer = Timer.periodic(Duration(minutes: 1), (_) {
+      _sendMetrics();
+    });
+  }
+  
+  void recordLocationUpdate(LocationPoint point, LocationUpdateContext context) {
+    _metrics.totalPoints++;
+    
+    // Calcular métricas
+    if (_metrics.lastPoint != null) {
+      final distance = Geolocator.distanceBetween(
+        _metrics.lastPoint!.lat,
+        _metrics.lastPoint!.lng,
+        point.lat,
+        point.lng,
+      );
+      
+      _metrics.totalDistance += distance;
+      
+      // Detectar anomalias
+      if (distance > 1000 && context.timeSinceLastUpdate < 10) {
+        // Possível teleporte/erro
+        _sentry.captureMessage(
+          'Anomalia de localização detectada',
+          level: SentryLevel.warning,
+          withScope: (scope) {
+            scope.setExtra('distance', distance);
+            scope.setExtra('time_diff', context.timeSinceLastUpdate);
+            scope.setExtra('last_point', _metrics.lastPoint?.toMap());
+            scope.setExtra('current_point', point.toMap());
+          },
+        );
+      }
+    }
+    
+    // Atualizar precisão média
+    _metrics.accuracyReadings.add(point.accuracy);
+    if (_metrics.accuracyReadings.length > 100) {
+      _metrics.accuracyReadings.removeAt(0);
+    }
+    
+    _metrics.lastPoint = point;
+    
+    // Performance metrics
+    if (context.processingTime > 100) {
+      _performance.newTrace('slow_location_processing')
+        ..setMetric('processing_time', context.processingTime)
+        ..setMetric('accuracy', point.accuracy)
+        ..start()
+        ..stop();
+    }
+  }
+  
+  void _sendMetrics() {
+    final batteryUsed = _metrics.startBattery - _currentBattery;
+    
+    _analytics.logEvent('tracking_metrics_minute', {
+      'points_collected': _metrics.pointsLastMinute,
+      'distance_meters': _metrics.distanceLastMinute,
+      'avg_accuracy': _metrics.averageAccuracy,
+      'battery_drain_percent': batteryUsed,
+      'profile': _currentProfile.toString(),
+      'network_type': _currentNetworkType,
+      'app_state': _appLifecycleState.toString(),
+    });
+    
+    // Reset contadores por minuto
+    _metrics.resetMinuteCounters();
+  }
+  
+  void handleError(TrackingError error) {
+    _metrics.errors++;
+    
+    _sentry.captureException(
+      error,
+      stackTrace: error.stackTrace,
+      withScope: (scope) {
+        scope.setTag('error_type', error.type.toString());
+        scope.setExtra('session_id', _metrics.sessionId);
+        scope.setExtra('points_collected', _metrics.totalPoints);
+        scope.setExtra('duration_minutes', _metrics.duration.inMinutes);
+      },
+    );
+    
+    // Métricas de erro
+    _analytics.logEvent('tracking_error', {
+      'error_type': error.type.toString(),
+      'error_code': error.code,
+      'session_duration': _metrics.duration.inSeconds,
+      'retry_count': error.retryCount,
+    });
+  }
+}
+```
+
+## 7. Testes Automatizados
+
+### 7.1 Testes de Integração
+
+```dart
+// test/integration/location_tracking_test.dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mockito/mockito.dart';
+
+void main() {
+  group('Location Tracking Integration Tests', () {
+    late LocationService locationService;
+    late MockSupabaseClient mockSupabase;
+    late MockGeolocator mockGeolocator;
+    
+    setUp(() {
+      mockSupabase = MockSupabaseClient();
+      mockGeolocator = MockGeolocator();
+      locationService = LocationService(
+        supabase: mockSupabase,
+        geolocator: mockGeolocator,
+      );
+    });
+    
+    test('should handle complete tracking lifecycle', () async {
+      // Arrange
+      final positions = generateMockRoute(
+        start: LatLng(-23.5505, -46.6333),
+        end: LatLng(-23.5605, -46.6433),
+        points: 100,
+        duration: Duration(minutes: 15),
+      );
+      
+      when(mockGeolocator.getPositionStream(any))
+        .thenAnswer((_) => Stream.fromIterable(positions));
+      
+      when(mockSupabase.from('realtime_locations').insert(any))
+        .thenAnswer((_) async => {});
+      
+      // Act
+      await locationService.startTracking();
+      
+      // Simular 15 minutos de tracking
+      await Future.delayed(Duration(seconds: 15));
+      
+      await locationService.stopTracking();
+      
+      // Assert
+      verify(mockSupabase.from('realtime_locations').insert(any))
+        .called(greaterThan(10)); // Pelo menos alguns pontos enviados
+      
+      expect(locationService.metrics.totalDistance, greaterThan(1000));
+      expect(locationService.metrics.pointsCollected, equals(100));
+    });
+    
+    test('should compress trajectory efficiently', () async {
+      // Arrange
+      final points = generateDenseRoute(1000); // 1000 pontos
+      
+      // Act
+      final compressed = TrajectoryCompressor.compress(points);
+      
+      // Assert
+      expect(compressed.compressedSize, lessThan(points.length * 5));
+      expect(compressed.compressionRatio, greaterThan(0.7));
+      
+      // Verificar se a trajetória mantém forma geral
+      final decompressed = TrajectoryCompressor.decompress(compressed);
+      final hausdorffDistance = calculateHausdorffDistance(points, decompressed);
+      expect(hausdorffDistance, lessThan(20)); // metros
+    });
+    
+    test('should handle network failures gracefully', () async {
+      // Arrange
+      when(mockSupabase.from('realtime_locations').insert(any))
+        .thenThrow(NetworkException('No connection'));
+      
+      // Act
+      await locationService.startTracking();
+      await Future.delayed(Duration(seconds: 5));
+      
+      // Assert
+      expect(locationService.pendingUploads, greaterThan(0));
+      expect(locationService.isOfflineMode, isTrue);
+      
+      // Simular reconexão
+      when(mockSupabase.from('realtime_locations').insert(any))
+        .thenAnswer((_) async => {});
+      
+      await locationService.syncPendingData();
+      
+      expect(locationService.pendingUploads, equals(0));
+    });
+  });
+}
+```
+
+## 8. Estratégias de Rollout e Feature Flags
+
+```dart
+// lib/services/feature_flags/tracking_feature_flags.dart
+class TrackingFeatureFlags {
+  final RemoteConfig _remoteConfig;
+  
+  // Flags principais
+  bool get isBackgroundTrackingEnabled => 
+    _remoteConfig.getBool('background_tracking_enabled');
+    
+  bool get isRealtimeShareEnabled => 
+    _remoteConfig.getBool('realtime_share_enabled');
+    
+  int get maxTrackingDurationHours => 
+    _remoteConfig.getInt('max_tracking_duration_hours');
+    
+  Map<String, dynamic> get trackingProfiles =>
+    jsonDecode(_remoteConfig.getString('tracking_profiles'));
+    
+  // Rollout progressivo
+  bool shouldEnableForUser(String userId) {
+    final rolloutPercentage = _remoteConfig.getInt('tracking_rollout_percentage');
+    final userHash = userId.hashCode.abs();
+    return (userHash % 100) < rolloutPercentage;
+  }
+  
+  // A/B testing de algoritmos
+  CompressionAlgorithm getCompressionAlgorithm(String userId) {
+    final variant = _getABTestVariant(userId, 'compression_algorithm_test');
+    
+    switch (variant) {
+      case 'A':
+        return CompressionAlgorithm.douglasPeucker;
+      case 'B':
+        return CompressionAlgorithm.visvalingam;
+      case 'C':
+        return CompressionAlgorithm.hybrid;
+      default:
+        return CompressionAlgorithm.douglasPeucker;
+    }
+  }
+}
+```
+
+## 9. Checklist de Implementação
+
+### 9.1 Fase 1 - Infraestrutura Base (1-2 semanas)
+- [ ] Configurar Supabase com tabelas de tracking
+- [ ] Implementar autenticação Firebase -> Supabase
+- [ ] Criar Cloud Functions de sincronização
+- [ ] Configurar Isar para persistência local
+- [ ] Implementar sistema de permissões básico
+
+### 9.2 Fase 2 - Tracking Core (2-3 semanas)
+- [ ] Implementar LocationService com modos adaptativos
+- [ ] Criar sistema de background tracking Android
+- [ ] Criar sistema de background tracking iOS
+- [ ] Implementar compressão de trajetórias
+- [ ] Criar fila de sincronização offline
+
+### 9.3 Fase 3 - Compartilhamento (2 semanas)
+- [ ] Implementar sistema de permissões granulares
+- [ ] Criar UI de visualização em tempo real
+- [ ] Implementar websockets Supabase para realtime
+- [ ] Criar sistema de notificações
+- [ ] Implementar privacy controls
+
+### 9.4 Fase 4 - Otimização e Monitoramento (1-2 semanas)
+- [ ] Implementar telemetria completa
+- [ ] Criar dashboards de monitoramento
+- [ ] Otimizar consumo de bateria
+- [ ] Implementar feature flags
+- [ ] Realizar testes de carga
+
+### 9.5 Fase 5 - Testes e Rollout (2 semanas)
+- [ ] Testes em dispositivos físicos variados
+- [ ] Testes de campo em condições reais
+- [ ] Ajustes baseados em feedback
+- [ ] Rollout progressivo com monitoramento
+- [ ] Documentação técnica completa
+
+Este plano fornece uma implementação técnica completa e detalhada, focada em fazer a feature funcionar com excelência, mantendo custos controlados através da arquitetura híbrida Firebase-Supabase.

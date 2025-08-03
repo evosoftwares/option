@@ -1,5 +1,18 @@
+buildscript {
+    repositories {
+        // Repositórios necessários para resolver plugins como com.google.gms:google-services
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath("com.google.gms:google-services:4.4.0")
+    }
+}
+
 allprojects {
     repositories {
+        // Garantir que todos os subprojetos (incl. :app) tenham os repositórios
         google()
         mavenCentral()
     }

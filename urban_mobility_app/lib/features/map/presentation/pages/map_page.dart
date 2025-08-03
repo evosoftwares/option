@@ -19,6 +19,8 @@
 /// Notas:
 /// - Mantém estado de busca local (_isSearching) e controller de texto.
 ///
+library;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../shared/services/location_service.dart';
@@ -197,14 +199,14 @@ class _MapPageState extends State<MapPage> {
       mainAxisSize: MainAxisSize.min,
       children: [
         FloatingActionButton(
-          heroTag: "directions",
+          heroTag: 'directions',
           onPressed: _showDirectionsDialog,
           backgroundColor: Theme.of(context).primaryColor,
           child: const Icon(Icons.directions, color: Colors.white),
         ),
         const SizedBox(height: 12),
         FloatingActionButton(
-          heroTag: "transport",
+          heroTag: 'transport',
           onPressed: _showTransportOptions,
           backgroundColor: Theme.of(context).colorScheme.secondary,
           child: const Icon(Icons.directions_bus, color: Colors.white),
@@ -216,7 +218,7 @@ class _MapPageState extends State<MapPage> {
   /// Executa uma busca textual por localizações.
   /// Parâmetros:
   /// - [query]: termo de busca.
-  /// Retorno: Future<void>.
+  /// Retorno: `Future<void>`.
   /// Efeitos colaterais:
   /// - Atualiza estado local (_isSearching).
   /// - Exibe SnackBars para sucesso/erro.

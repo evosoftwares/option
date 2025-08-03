@@ -1,10 +1,12 @@
 /* [Page: Home] Tela inicial sem ações rápidas e sem navegação para Map.
    Comentários curtos e endereçados por seção. */
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-import '../../../../shared/services/location_service.dart';
+import '../../../../shared/services/location_service_optimized.dart';
 import '../../../../shared/widgets/empty_state.dart';
+import '../../../../core/di/service_locator.dart';
 
 /* [Home] Widget raiz da Home. */
 class HomePage extends StatefulWidget {
@@ -15,13 +17,42 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  Timer? _locationUpdateTimer;
+  late LocationServiceOptimized _locationService;
+
   @override
   void initState() {
     super.initState();
+    _locationService = sl<LocationServiceOptimized>();
+    
     /* [Home/Init] Solicita localização após primeiro frame. */
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<LocationService>().getCurrentPosition();
+      _locationService.getCurrentPosition();
+      _startLocationUpdates();
     });
+  }
+
+  void _startLocationUpdates() {
+    // Atualiza a localização a cada 30 segundos
+    print('[HomePage] Iniciando timer de atualização de localização');
+    _locationUpdateTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (timer) {
+        if (mounted) {
+          print('[HomePage] Timer disparado - atualizando localização');
+          _locationService.getCurrentPosition(forceRefresh: true);
+        } else {
+          print('[HomePage] Widget não está montado - cancelando timer');
+          timer.cancel();
+        }
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _locationUpdateTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -42,7 +73,7 @@ class _HomePageState extends State<HomePage> {
       /* [Home/Body] Hierarquia visual: cabeçalho compacto, busca e conteúdos existentes (acessos rápidos removidos). */
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final horizontal = 16.0;
+          const horizontal = 16.0;
 
           return SafeArea(
             child: SingleChildScrollView(
@@ -83,6 +114,8 @@ class _HomePageState extends State<HomePage> {
                   _buildWelcomeCard(),
                   const SizedBox(height: 16),
                   _buildLocationCard(),
+                  const SizedBox(height: 16),
+                  _buildLocationTrackingCard(),
                   const SizedBox(height: 16),
 
                   /* Placeholder de lista vazia (demonstração do componente reutilizável) */
@@ -144,76 +177,169 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /* [Home/Location] Card reativo com status de localização. */
+  /* [Home/Location] Card reativo com status de localização usando serviço otimizado. */
   Widget _buildLocationCard() {
-    return Consumer<LocationService>(
-      builder: (context, locationService, child) {
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.location_on,
-                      color: Theme.of(context).primaryColor,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Sua Localização',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                if (locationService.isLoading)
-                  const Row(
+    return ChangeNotifierProvider<LocationServiceOptimized>.value(
+      value: _locationService,
+      child: Consumer<LocationServiceOptimized>(
+        builder: (context, locationService, child) {
+          final state = locationService.state;
+          
+          return Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  /* [Home/Location/Header] Cabeçalho com ícone. */
+                  Row(
                     children: [
-                      SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                      Icon(
+                        Icons.location_on,
+                        color: Theme.of(context).primaryColor,
                       ),
-                      SizedBox(width: 12),
-                      Flexible(
-                        child: Text('Obtendo localização...'),
-                      ),
-                    ],
-                  )
-                else if (locationService.error != null)
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+                      const SizedBox(width: 8),
                       Text(
-                        locationService.error!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
+                        'Sua Localização',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const Spacer(),
+                      if (state.status == LocationStatus.success)
+                        Icon(
+                          Icons.check_circle,
+                          color: Colors.green,
+                          size: 16,
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      ElevatedButton.icon(
-                        onPressed: () => locationService.getCurrentPosition(),
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Tentar Novamente'),
-                      ),
                     ],
-                  )
-                else if (locationService.currentAddress != null)
-                  Text(
-                    locationService.currentAddress!,
-                    style: Theme.of(context).textTheme.bodyLarge,
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 2,
-                  )
-                else
-                  const Text('Localização não disponível'),
+                  ),
+                  const SizedBox(height: 12),
+                  /* [Home/Location/Content] Conteúdo dinâmico baseado no estado otimizado. */
+                  if (state.status == LocationStatus.loading)
+                    const Row(
+                      children: [
+                        SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 12),
+                        Flexible(
+                          child: Text('Obtendo localização...'),
+                        ),
+                      ],
+                    )
+                  else if (state.status == LocationStatus.error || 
+                           state.status == LocationStatus.permissionDenied)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          state.error ?? 'Erro desconhecido',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ElevatedButton.icon(
+                          onPressed: () => _locationService.getCurrentPosition(forceRefresh: true),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Tentar Novamente'),
+                        ),
+                      ],
+                    )
+                  else if (state.status == LocationStatus.success && state.address != null)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          state.address!,
+                          style: Theme.of(context).textTheme.bodyLarge,
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 2,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Atualizado automaticamente',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.green,
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    const Text('Localização não disponível'),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /* [Home/LocationTracking] Card para acessar o sistema de rastreamento. */
+  Widget _buildLocationTrackingCard() {
+    return Card(
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            colors: [
+              Colors.blue.shade600,
+              Colors.blue.shade400,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.gps_fixed,
+                  color: Colors.white,
+                  size: 28,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Rastreamento de Localização',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
               ],
             ),
-          ),
-        );
-      },
+            const SizedBox(height: 12),
+            Text(
+              'Sistema avançado de rastreamento em tempo real com estatísticas detalhadas e configurações personalizáveis.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Colors.white70,
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => context.go('/location-tracking'),
+                icon: const Icon(Icons.navigation),
+                label: const Text('Abrir Rastreamento'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.blue.shade600,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -352,8 +478,8 @@ class _HomePageState extends State<HomePage> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(
-              decoration: const InputDecoration(
+            const TextField(
+              decoration: InputDecoration(
                 labelText: 'De onde?',
                 prefixIcon: Icon(
                   Icons.radio_button_checked,
@@ -363,8 +489,8 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
             const SizedBox(height: 16),
-            TextField(
-              decoration: const InputDecoration(
+            const TextField(
+              decoration: InputDecoration(
                 labelText: 'Para onde?',
                 prefixIcon: Icon(Icons.location_on, color: Colors.red),
                 border: OutlineInputBorder(),

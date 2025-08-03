@@ -1,6 +1,30 @@
+////
+/// Página de Perfil
+///
+/// Propósito:
+/// - Exibir dados do usuário, estatísticas, configurações e ações de conta.
+///
+/// Camadas/Dependências:
+/// - Presentation da feature Profile. Somente UI e estado local.
+///
+/// Responsabilidades:
+/// - Gerenciar preferências locais (notificações, tema, localização).
+/// - Alternar modo motorista e ajustar taxa por km (estado local).
+/// - Exibir menus de navegação informativos (placeholders).
+///
+/// Pontos de extensão:
+/// - Integração com backend para persistir preferências e perfil.
+/// - Navegação real para histórico, pagamentos e suporte.
+///
+/// Notas:
+/// - Não altera assinaturas públicas nem lógica de negócio.
+///
+library;
 import 'package:flutter/material.dart';
 
+/// Página principal do perfil do usuário.
 class ProfilePage extends StatefulWidget {
+  /// Construtor padrão.
   const ProfilePage({super.key});
 
   @override
@@ -8,10 +32,15 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  // Preferências locais simuladas para a UI.
   bool _notificationsEnabled = true;
   bool _darkModeEnabled = false;
   bool _locationEnabled = true;
+
+  // Estado do modo motorista e taxa por km (apenas visual/local).
   bool _isDriverMode = false;
+
+  // Taxa por km em R$ (meramente ilustrativo).
   double _driverRate = 2.5; // Taxa por km em R$
 
   @override
@@ -24,7 +53,7 @@ class _ProfilePageState extends State<ProfilePage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.edit),
-            onPressed: _editProfile,
+            onPressed: _editProfile, // Ação de edição (placeholder).
           ),
         ],
       ),
@@ -47,6 +76,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// Cabeçalho do perfil com avatar, nome, e e-mail.
   Widget _buildProfileHeader() {
     return Card(
       child: Padding(
@@ -102,6 +132,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// Card de estatísticas agregadas do usuário (mock).
   Widget _buildStatsCard() {
     return Card(
       child: Padding(
@@ -148,6 +179,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// Item de estatística visual com ícone, valor e rótulo.
   Widget _buildStatItem({
     required IconData icon,
     required String value,
@@ -180,6 +212,8 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// Seção do modo motorista com controle de taxa por quilômetro.
+  /// Efeitos colaterais: atualiza estado local ao alternar modo/ajustar taxa.
   Widget _buildDriverSection() {
     return Card(
       child: Padding(
@@ -333,6 +367,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// Seção de configurações com toggles (notificações, tema, localização).
   Widget _buildSettingsSection() {
     return Card(
       child: Padding(
@@ -384,6 +419,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// Tile reutilizável para switches de configuração.
   Widget _buildSwitchTile({
     required IconData icon,
     required String title,
@@ -424,6 +460,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// Seção de menu com navegações (placeholders).
   Widget _buildMenuSection() {
     return Card(
       child: Column(
@@ -459,6 +496,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// Tile de menu genérico com ícone, título e ação.
   Widget _buildMenuTile({
     required IconData icon,
     required String title,
@@ -481,6 +519,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// Placeholder para ação de editar perfil.
   void _editProfile() {
     showDialog(
       context: context,
@@ -497,6 +536,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// Exibe um SnackBar informando que a funcionalidade virá em breve.
   void _showComingSoon(String feature) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -506,6 +546,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// Exibe diálogo "Sobre".
   void _showAbout() {
     showAboutDialog(
       context: context,
@@ -526,6 +567,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// Confirmação e feedback de logout (placeholder sem integração).
   void _logout() {
     showDialog(
       context: context,

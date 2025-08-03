@@ -18,6 +18,8 @@
 /// Notas:
 /// - Usa TabController com SingleTickerProviderStateMixin.
 ///
+library;
+
 import 'package:flutter/material.dart';
 
 /// Página principal de corridas com abas.

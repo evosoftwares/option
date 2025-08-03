@@ -12,15 +12,24 @@ import 'features/profile/presentation/pages/profile_page.dart';
 import 'features/location_tracking/presentation/screens/location_tracking_screen.dart';
 import 'features/location_tracking/di/location_tracking_dependencies.dart';
 
-/* [App Entry] Inicializa o app + Firebase + Service Locator. */
+/* [App Entry] Inicializa o app + Firebase + Supabase + Service Locator. */
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart' as fo;
 import 'core/di/service_locator.dart';
+import 'core/services/supabase_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Inicializar Firebase
   await Firebase.initializeApp(options: fo.DefaultFirebaseOptions.currentPlatform);
+  
+  // Inicializar Supabase
+  await SupabaseService.instance.initialize();
+  
+  // Configurar Service Locator
   await setupServiceLocator();
+  
   runApp(const InDriverApp());
 }
 

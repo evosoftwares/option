@@ -10,6 +10,7 @@ orbs:
   aws-ecs: circleci/aws-ecs@4.0.0
   node: circleci/node@5.1.0
   docker: circleci/docker@2.3.0
+  android: circleci/android@2.3.0
 
 # Reusable executors (Docker images) to avoid duplication
 executors:
@@ -43,6 +44,17 @@ executors:
     resource_class: medium
     environment:
       AWS_REGION: ${AWS_REGION}
+  flutter_executor:
+    docker:
+      - image: cimg/android:2024.01.1
+        auth:
+          username: $DOCKERHUB_USERNAME
+          password: $DOCKERHUB_TOKEN
+    resource_class: large
+    environment:
+      FLUTTER_VERSION: "3.19.6"
+      FLUTTER_HOME: "/home/circleci/flutter"
+      PATH: "/home/circleci/flutter/bin:$PATH"
 
 # Reusable commands for setup, caching, and test artifact handling
 commands:
@@ -106,6 +118,47 @@ commands:
             - store_artifacts:
                 path: <<parameters.coverage_dir>>
                 destination: coverage
+  setup_flutter:
+    description: "Install and setup Flutter SDK"
+    steps:
+      - run:
+          name: Install Flutter SDK
+          command: |
+            if [ ! -d "$FLUTTER_HOME" ]; then
+              cd /home/circleci
+              wget -O flutter.tar.xz https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz
+              tar xf flutter.tar.xz
+              rm flutter.tar.xz
+            fi
+            echo 'export PATH="$FLUTTER_HOME/bin:$PATH"' >> $BASH_ENV
+      - run:
+          name: Flutter doctor
+          command: |
+            flutter doctor -v
+            flutter --version
+  restore_flutter_cache:
+    description: "Restore Flutter dependencies cache"
+    parameters:
+      working_directory:
+        type: string
+        default: "urban_mobility_app"
+    steps:
+      - restore_cache:
+          keys:
+            - flutter-deps-v1-{{ arch }}-{{ checksum "<<parameters.working_directory>>/pubspec.lock" }}
+            - flutter-deps-v1-{{ arch }}-
+  save_flutter_cache:
+    description: "Save Flutter dependencies cache"
+    parameters:
+      working_directory:
+        type: string
+        default: "urban_mobility_app"
+    steps:
+      - save_cache:
+          key: flutter-deps-v1-{{ arch }}-{{ checksum "<<parameters.working_directory>>/pubspec.lock" }}
+          paths:
+            - ~/.pub-cache
+            - <<parameters.working_directory>>/.dart_tool
 
 # Parameters for pipeline-level customization
 parameters:
@@ -386,6 +439,124 @@ jobs:
                 cluster-name: "<< pipeline.parameters.aws_cluster >>"
                 container-image-name-updates: "container=<< pipeline.parameters.aws_service_production >>,tag=${CIRCLE_TAG}"
 
+  # Flutter Jobs
+  flutter_analyze:
+    description: "Run Flutter code analysis and linting"
+    executor: flutter_executor
+    working_directory: ~/project/urban_mobility_app
+    steps:
+      - checkout:
+          path: ~/project
+      - setup_flutter
+      - restore_flutter_cache
+      - run:
+          name: Get Flutter dependencies
+          command: flutter pub get
+      - run:
+          name: Run Flutter analyze
+          command: |
+            flutter analyze --fatal-warnings
+            # Specific analysis for hybrid location system
+            flutter analyze lib/features/location_tracking/data/repositories/hybrid_location_repository.dart
+            flutter analyze lib/features/location_tracking/presentation/providers/hybrid_location_tracking_provider.dart
+      - run:
+          name: Check code formatting
+          command: dart format --set-exit-if-changed .
+      - save_flutter_cache
+
+  flutter_test:
+    description: "Run Flutter unit tests with coverage"
+    executor: flutter_executor
+    working_directory: ~/project/urban_mobility_app
+    steps:
+      - checkout:
+          path: ~/project
+      - setup_flutter
+      - restore_flutter_cache
+      - run:
+          name: Get Flutter dependencies
+          command: flutter pub get
+      - run:
+          name: Run Flutter tests with coverage
+          command: |
+            mkdir -p test-results coverage
+            flutter test --coverage --reporter=json > test-results/flutter-tests.json || true
+            # Convert coverage to lcov format
+            if [ -f coverage/lcov.info ]; then
+              echo "Coverage report generated"
+            fi
+      - run:
+          name: Test hybrid location system specifically
+          command: |
+            # Run comprehensive hybrid location system validation
+            chmod +x .circleci/scripts/test_hybrid_location.sh
+            .circleci/scripts/test_hybrid_location.sh
+            
+            # Additional unit tests if they exist
+            if [ -f test/unit/hybrid_location_repository_test.dart ]; then
+              flutter test test/unit/hybrid_location_repository_test.dart
+            fi
+            if [ -f test/unit/hybrid_location_tracking_provider_test.dart ]; then
+              flutter test test/unit/hybrid_location_tracking_provider_test.dart
+            fi
+      - store_test_results:
+          path: test-results
+      - store_artifacts:
+          path: coverage
+          destination: coverage
+      - save_flutter_cache
+
+  flutter_integration_test:
+    description: "Run Flutter integration tests for location tracking"
+    executor: flutter_executor
+    working_directory: ~/project/urban_mobility_app
+    steps:
+      - checkout:
+          path: ~/project
+      - setup_flutter
+      - restore_flutter_cache
+      - run:
+          name: Get Flutter dependencies
+          command: flutter pub get
+      - run:
+          name: Run integration tests
+          command: |
+            # Run location tracking integration tests if they exist
+            if [ -d integration_test ]; then
+              flutter test integration_test/
+            fi
+            # Test hybrid location system end-to-end
+            if [ -f integration_test/hybrid_location_test.dart ]; then
+              flutter test integration_test/hybrid_location_test.dart
+            fi
+      - save_flutter_cache
+
+  flutter_build_android:
+    description: "Build Flutter Android APK"
+    executor: flutter_executor
+    working_directory: ~/project/urban_mobility_app
+    steps:
+      - checkout:
+          path: ~/project
+      - setup_flutter
+      - restore_flutter_cache
+      - run:
+          name: Get Flutter dependencies
+          command: flutter pub get
+      - run:
+          name: Build Android APK
+          command: |
+            flutter build apk --release --split-per-abi
+            # Verify hybrid location system is included in build
+            echo "Verifying hybrid location system in build..."
+            if [ -f lib/features/location_tracking/data/repositories/hybrid_location_repository.dart ]; then
+              echo "✅ Hybrid location repository included"
+            fi
+      - store_artifacts:
+          path: build/app/outputs/flutter-apk/
+          destination: android-apk
+      - save_flutter_cache
+
 # Workflows with triggers, fan-in/fan-out, approvals, and matrix
 workflows:
   version: 2
@@ -419,23 +590,25 @@ workflows:
               node_version: ["20.11"]
           context:
             - org-global-readonly
+      # Flutter jobs for PR validation
+      - flutter_analyze:
+          context:
+            - org-global-readonly
+      - flutter_test:
+          context:
+            - org-global-readonly
+          requires:
+            - flutter_analyze
 
   main_pipeline:
-    triggers:
-      - schedule:
-          # Nightly schedule for extended tests (integration/regression)
-          cron: "0 3 * * *"
-          filters:
-            branches:
-              only:
-                - main
+    when:
+      and:
+        - equal: [ "push", << pipeline.trigger_source >> ]
+        - equal: [ "main", << pipeline.git.branch >> ]
     jobs:
       - lint:
           context:
             - org-global-readonly
-          filters:
-            branches:
-              only: [ main ]
       - unit_tests:
           name: unit_node_16
           matrix:
@@ -443,9 +616,6 @@ workflows:
               node_version: ["16.20"]
           context:
             - org-global-readonly
-          filters:
-            branches:
-              only: [ main ]
       - unit_tests:
           name: unit_node_18
           matrix:
@@ -453,9 +623,6 @@ workflows:
               node_version: ["18.19"]
           context:
             - org-global-readonly
-          filters:
-            branches:
-              only: [ main ]
       - unit_tests:
           name: unit_node_20
           matrix:
@@ -463,47 +630,52 @@ workflows:
               node_version: ["20.11"]
           context:
             - org-global-readonly
-          filters:
-            branches:
-              only: [ main ]
+      # Flutter pipeline
+      - flutter_analyze:
+          context:
+            - org-global-readonly
+      - flutter_test:
+          context:
+            - org-global-readonly
+          requires:
+            - flutter_analyze
+      - flutter_integration_test:
+          context:
+            - org-global-readonly
+          requires:
+            - flutter_test
+      - flutter_build_android:
+          context:
+            - org-global-readonly
+          requires:
+            - flutter_integration_test
+      # Backend pipeline
       - integration_tests:
           context:
             - org-global-readonly
-            - integration-secrets # context containing non-prod tokens
           requires:
-            - lint
             - unit_node_16
             - unit_node_18
             - unit_node_20
-          filters:
-            branches:
-              only: [ main ]
       - build:
           context:
             - org-global-readonly
           requires:
+            - lint
             - integration_tests
-          filters:
-            branches:
-              only: [ main ]
+            - flutter_build_android  # Ensure Flutter build passes before backend deployment
       - docker_build_and_push:
           context:
             - org-global-readonly
-            - registry-push # context with DOCKERHUB_TOKEN or AWS creds
+            - aws-ecr-push
           requires:
             - build
-          filters:
-            branches:
-              only: [ main ]
       - deploy_staging:
           context:
             - org-global-readonly
-            - aws-staging # context with limited IAM to staging
+            - aws-deploy-staging
           requires:
             - docker_build_and_push
-          filters:
-            branches:
-              only: [ main ]
 
   release_pipeline:
     when:

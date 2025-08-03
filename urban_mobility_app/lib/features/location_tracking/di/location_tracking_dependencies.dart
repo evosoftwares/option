@@ -47,17 +47,22 @@ class LocationTrackingDependencies {
       ),
       
       // Providers (State Management)
-      ProxyProvider3<GetCurrentLocationUseCase, StartLocationTrackingUseCase,
+      ChangeNotifierProxyProvider3<GetCurrentLocationUseCase, StartLocationTrackingUseCase,
           StopLocationTrackingUseCase, LocationTrackingProvider>(
+        create: (_) => LocationTrackingProvider(
+          GetCurrentLocationUseCase(LocationRepositoryImpl(GeolocatorLocationDataSource())),
+          StartLocationTrackingUseCase(LocationRepositoryImpl(GeolocatorLocationDataSource())),
+          StopLocationTrackingUseCase(LocationRepositoryImpl(GeolocatorLocationDataSource())),
+        ),
         update: (_, getCurrentLocation, startTracking, stopTracking, previous) {
-          // Sempre reconstruir o provider com as dependências atualizadas
-          return LocationTrackingProvider(
+          // Reutilizar o provider anterior se existir, caso contrário criar novo
+          return previous ?? LocationTrackingProvider(
             getCurrentLocation,
             startTracking,
             stopTracking,
           );
         },
-        dispose: (_, provider) => provider.dispose(),
+
       ),
     ];
   }
@@ -103,16 +108,20 @@ class LocationTrackingDependencies {
       ),
       
       // Providers (State Management)
-      ProxyProvider3<GetCurrentLocationUseCase, StartLocationTrackingUseCase,
+      ChangeNotifierProxyProvider3<GetCurrentLocationUseCase, StartLocationTrackingUseCase,
           StopLocationTrackingUseCase, LocationTrackingProvider>(
+        create: (_) => LocationTrackingProvider(
+          mockGetCurrentLocation ?? GetCurrentLocationUseCase(LocationRepositoryImpl(GeolocatorLocationDataSource())),
+          mockStartTracking ?? StartLocationTrackingUseCase(LocationRepositoryImpl(GeolocatorLocationDataSource())),
+          mockStopTracking ?? StopLocationTrackingUseCase(LocationRepositoryImpl(GeolocatorLocationDataSource())),
+        ),
         update: (_, getCurrentLocation, startTracking, stopTracking, previous) {
-          return LocationTrackingProvider(
+          return previous ?? LocationTrackingProvider(
             getCurrentLocation,
             startTracking,
             stopTracking,
           );
         },
-        dispose: (_, provider) => provider.dispose(),
       ),
     ];
   }

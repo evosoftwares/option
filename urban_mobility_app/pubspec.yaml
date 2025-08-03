@@ -44,6 +44,7 @@ dependencies:
   flutter_riverpod: ^2.4.9
   riverpod_annotation: ^2.3.3
   go_router: ^12.1.3
+  provider: ^6.1.1
   
   # HTTP e APIs
   http: ^1.1.2
@@ -71,12 +72,13 @@ dependencies:
   flutter_background_service: ^5.0.5
   permission_handler: ^11.1.0
   device_info_plus: ^9.1.1
-  battery_plus: ^5.0.2
+  battery_plus: ^5.0.3
   
-  # Database Local
-  isar: ^3.1.0+1
-  isar_flutter_libs: ^3.1.0+1
+  # Database Local (temporariamente desabilitado)
+  # isar: ^3.1.0+1
+  # isar_flutter_libs: ^3.1.0+1
   path_provider: ^2.1.1
+  sqflite: ^2.3.0
   
   # Criptografia e Segurança
   crypto: ^3.0.3
@@ -108,7 +110,7 @@ dev_dependencies:
   # Code generation
   build_runner: ^2.4.7
   riverpod_generator: ^2.3.9
-  isar_generator: ^3.1.0+1
+  # isar_generator: ^3.1.0+1
   json_annotation: ^4.8.1
   json_serializable: ^6.7.1
 

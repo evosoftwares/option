@@ -1,0 +1,68 @@
+# Flutter Test Configuration for CircleCI
+# Specific configuration for hybrid location tracking system
+
+# Test environment variables
+test_environment: &test_environment
+  FLUTTER_TEST: true
+  SUPABASE_TEST_URL: "https://test.supabase.co"
+  SUPABASE_TEST_ANON_KEY: "test_key"
+  LOCATION_TEST_MODE: true
+  HYBRID_LOCATION_DEBUG: true
+
+# Test patterns for hybrid location system
+test_patterns:
+  unit_tests:
+    - "test/unit/hybrid_location_repository_test.dart"
+    - "test/unit/hybrid_location_tracking_provider_test.dart"
+    - "test/unit/location_data_converter_test.dart"
+    - "test/features/location_tracking/**/*_test.dart"
+  
+  integration_tests:
+    - "integration_test/hybrid_location_test.dart"
+    - "integration_test/location_tracking_flow_test.dart"
+    - "integration_test/supabase_sync_test.dart"
+  
+  widget_tests:
+    - "test/widget/location_tracking_widget_test.dart"
+    - "test/widget/hybrid_location_example_test.dart"
+
+# Coverage configuration
+coverage_config:
+  minimum_coverage: 80
+  exclude_patterns:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - "**/generated/**"
+  include_patterns:
+    - "lib/features/location_tracking/**"
+    - "lib/core/location/**"
+
+# Analysis configuration
+analysis_config:
+  strict_mode: true
+  fatal_warnings: true
+  specific_files:
+    - "lib/features/location_tracking/data/repositories/hybrid_location_repository.dart"
+    - "lib/features/location_tracking/presentation/providers/hybrid_location_tracking_provider.dart"
+    - "lib/features/location_tracking/domain/use_cases/**"
+
+# Build verification
+build_verification:
+  verify_hybrid_system: true
+  check_dependencies:
+    - "geolocator"
+    - "supabase_flutter"
+    - "provider"
+    - "get_it"
+  
+  verify_files:
+    - "lib/features/location_tracking/data/repositories/hybrid_location_repository.dart"
+    - "lib/features/location_tracking/presentation/providers/hybrid_location_tracking_provider.dart"
+    - "lib/features/location_tracking/domain/entities/enhanced_location_data.dart"
+
+# Performance benchmarks
+performance_benchmarks:
+  location_tracking_startup: "< 2s"
+  supabase_sync_time: "< 5s"
+  memory_usage: "< 100MB"
+  battery_impact: "minimal"

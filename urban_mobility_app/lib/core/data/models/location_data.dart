@@ -5,15 +5,6 @@ import 'dart:math' as math;
 /// Este modelo é usado para armazenar e transferir dados de localização
 /// entre diferentes camadas da aplicação e o Supabase.
 class LocationData {
-  final String? id;
-  final String userId;
-  final double latitude;
-  final double longitude;
-  final double accuracy;
-  final double? speed;
-  final double? heading;
-  final DateTime timestamp;
-  final Map<String, dynamic>? metadata;
 
   const LocationData({
     this.id,
@@ -41,6 +32,15 @@ class LocationData {
       metadata: json['metadata'] as Map<String, dynamic>?,
     );
   }
+  final String? id;
+  final String userId;
+  final double latitude;
+  final double longitude;
+  final double accuracy;
+  final double? speed;
+  final double? heading;
+  final DateTime timestamp;
+  final Map<String, dynamic>? metadata;
 
   /// Converte a instância para JSON
   Map<String, dynamic> toJson() {

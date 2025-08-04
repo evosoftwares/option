@@ -57,6 +57,6 @@ class SupabaseConfig {
   
   /// Obtém a URL para realtime
   static String get realtimeUrl {
-    return supabaseUrl.replaceFirst('https://', 'wss://') + '/realtime/v1/websocket';
+    return '${supabaseUrl.replaceFirst('https://', 'wss://')}/realtime/v1/websocket';
   }
 }

@@ -34,14 +34,6 @@ enum TrackingMode {
 
 /// Configurações do serviço de background
 class BackgroundServiceConfig {
-  final TrackingMode mode;
-  final Duration updateInterval;
-  final double distanceFilter;
-  final LocationAccuracy accuracy;
-  final bool enableBatching;
-  final int maxBatchSize;
-  final Duration syncInterval;
-  final bool adaptiveMode;
 
   const BackgroundServiceConfig({
     this.mode = TrackingMode.adaptive,
@@ -53,6 +45,33 @@ class BackgroundServiceConfig {
     this.syncInterval = const Duration(minutes: 5),
     this.adaptiveMode = true,
   });
+
+  factory BackgroundServiceConfig.fromJson(Map<String, dynamic> json) {
+    return BackgroundServiceConfig(
+      mode: TrackingMode.values.firstWhere(
+        (e) => e.name == json['mode'],
+        orElse: () => TrackingMode.adaptive,
+      ),
+      updateInterval: Duration(milliseconds: json['updateInterval'] ?? 30000),
+      distanceFilter: (json['distanceFilter'] ?? 10.0).toDouble(),
+      accuracy: LocationAccuracy.values.firstWhere(
+        (e) => e.name == json['accuracy'],
+        orElse: () => LocationAccuracy.high,
+      ),
+      enableBatching: json['enableBatching'] ?? true,
+      maxBatchSize: json['maxBatchSize'] ?? 50,
+      syncInterval: Duration(milliseconds: json['syncInterval'] ?? 300000),
+      adaptiveMode: json['adaptiveMode'] ?? true,
+    );
+  }
+  final TrackingMode mode;
+  final Duration updateInterval;
+  final double distanceFilter;
+  final LocationAccuracy accuracy;
+  final bool enableBatching;
+  final int maxBatchSize;
+  final Duration syncInterval;
+  final bool adaptiveMode;
 
   BackgroundServiceConfig copyWith({
     TrackingMode? mode,
@@ -88,36 +107,10 @@ class BackgroundServiceConfig {
       'adaptiveMode': adaptiveMode,
     };
   }
-
-  factory BackgroundServiceConfig.fromJson(Map<String, dynamic> json) {
-    return BackgroundServiceConfig(
-      mode: TrackingMode.values.firstWhere(
-        (e) => e.name == json['mode'],
-        orElse: () => TrackingMode.adaptive,
-      ),
-      updateInterval: Duration(milliseconds: json['updateInterval'] ?? 30000),
-      distanceFilter: (json['distanceFilter'] ?? 10.0).toDouble(),
-      accuracy: LocationAccuracy.values.firstWhere(
-        (e) => e.name == json['accuracy'],
-        orElse: () => LocationAccuracy.high,
-      ),
-      enableBatching: json['enableBatching'] ?? true,
-      maxBatchSize: json['maxBatchSize'] ?? 50,
-      syncInterval: Duration(milliseconds: json['syncInterval'] ?? 300000),
-      adaptiveMode: json['adaptiveMode'] ?? true,
-    );
-  }
 }
 
 /// Estatísticas do serviço de background
 class BackgroundServiceStats {
-  final int totalPoints;
-  final int syncedPoints;
-  final int failedSyncs;
-  final DateTime? lastSync;
-  final Duration uptime;
-  final double batteryUsage;
-  final int networkRequests;
 
   const BackgroundServiceStats({
     this.totalPoints = 0,
@@ -128,6 +121,13 @@ class BackgroundServiceStats {
     this.batteryUsage = 0.0,
     this.networkRequests = 0,
   });
+  final int totalPoints;
+  final int syncedPoints;
+  final int failedSyncs;
+  final DateTime? lastSync;
+  final Duration uptime;
+  final double batteryUsage;
+  final int networkRequests;
 
   BackgroundServiceStats copyWith({
     int? totalPoints,
@@ -164,14 +164,14 @@ class BackgroundServiceStats {
 
 /// Serviço de localização em background
 class BackgroundLocationService {
+  factory BackgroundLocationService() => _instance;
+  BackgroundLocationService._internal();
   static const String _serviceId = 'background_location_service';
   static const String _channelId = 'location_tracking_channel';
   static const int _notificationId = 1001;
 
   // Instância singleton
   static final BackgroundLocationService _instance = BackgroundLocationService._internal();
-  factory BackgroundLocationService() => _instance;
-  BackgroundLocationService._internal();
 
   // Estado do serviço
   BackgroundServiceState _state = BackgroundServiceState.stopped;

@@ -12,14 +12,14 @@ import '../../../../core/services/supabase_service.dart';
 /// Este provider integra o HybridLocationRepository com o sistema existente,
 /// permitindo tracking local com sincronização automática no Supabase.
 class HybridLocationTrackingProvider extends StatelessWidget {
-  final String userId;
-  final Widget child;
 
   const HybridLocationTrackingProvider({
-    Key? key,
+    super.key,
     required this.userId,
     required this.child,
-  }) : super(key: key);
+  });
+  final String userId;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {

@@ -1,124 +1,252 @@
 #!/bin/bash
+set -euo pipefail
 
-# Script para executar o Urban Mobility App no Android
-# Autor: Desenvolvedor Sênior
-# Data: $(date +%Y-%m-%d)
+# Urban Mobility App - Script único Android (diagnóstico, emulador e execução)
+# Recursos:
+# 1) Reseta ADB e trata unauthorized automaticamente (sem apagar chaves por padrão)
+# 2) Lança AVD com cold boot e flags robustas se não houver device
+# 3) Aguarda boot real via sys.boot_completed/bootanim
+# 4) Seleciona device sem interação (suporta --avd/ANDROID_AVD)
+# 5) Executa flutter run com --device-timeout 240
+# 6) Flags: --clean, --avd=NOME, --reset-adb-keys (opcional)
 
-echo "🚀 Urban Mobility App - Script de Execução Android"
+# ==========================
+# Configuração e Utilitários
+# ==========================
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+PROJECT_DIR="/Users/evosoftwares/option/urban_mobility_app"
+ANDROID_SDK_ROOT_DEFAULT="/Users/evosoftwares/Library/Android/sdk"
+ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_SDK_ROOT_DEFAULT}"
+
+print_status()  { echo -e "${BLUE}[INFO]${NC} $1"; }
+print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
+print_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# ==========================
+# Parsing de argumentos
+# ==========================
+ARG_CLEAN="false"
+ARG_AVD="${ANDROID_AVD:-}"     # pode ser sobrescrito por --avd
+ARG_RESET_KEYS="false"         # só apaga chaves ADB se explicitamente solicitado
+
+for arg in "$@"; do
+  case "$arg" in
+    --clean) ARG_CLEAN="true" ;;
+    --avd=*) ARG_AVD="${arg#*=}" ;;
+    --reset-adb-keys) ARG_RESET_KEYS="true" ;;
+    *) print_warning "Argumento desconhecido: $arg" ;;
+  esac
+done
+
+echo "🚀 Urban Mobility App - Script Android (único)"
 echo "=================================================="
 
-# Cores para output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Diretório do projeto
-PROJECT_DIR="/Users/evosoftwares/option/urban_mobility_app"
-
-# Função para imprimir mensagens coloridas
-print_status() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
-
-print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Verificar se estamos no diretório correto
+# ==========================
+# Pré-checagens
+# ==========================
 if [ ! -d "$PROJECT_DIR" ]; then
-    print_error "Diretório do projeto não encontrado: $PROJECT_DIR"
-    exit 1
+  print_error "Diretório do projeto não encontrado: $PROJECT_DIR"
+  exit 1
 fi
-
 cd "$PROJECT_DIR"
 
-# Verificar se Flutter está instalado
-if ! command -v flutter &> /dev/null; then
-    print_error "Flutter não está instalado ou não está no PATH"
-    exit 1
+if ! command -v flutter &>/dev/null; then
+  print_error "Flutter não está no PATH"
+  exit 1
+fi
+if ! command -v adb &>/dev/null; then
+  print_error "ADB não encontrado no PATH. Instale Platform-Tools e garanta PATH correto."
+  exit 1
 fi
 
-print_status "Verificando dispositivos Android disponíveis..."
-
-# Verificar dispositivos disponíveis
-DEVICES=$(flutter devices | grep "android")
-if [ -z "$DEVICES" ]; then
-    print_warning "Nenhum dispositivo Android encontrado. Tentando iniciar emulador..."
-    
-    # Listar emuladores disponíveis
-    EMULATORS=$(flutter emulators | grep "android")
-    if [ -z "$EMULATORS" ]; then
-        print_error "Nenhum emulador Android configurado."
-        print_status "Para configurar um emulador, execute: flutter emulators --create"
-        exit 1
+# ==========================
+# Funções auxiliares
+# ==========================
+wait_for_emulator() {
+  local device_id="$1"
+  local max_attempts=120 # 240s
+  local attempt=0
+  print_status "Aguardando boot completo do emulador $device_id (até 240s)..."
+  while [ $attempt -lt $max_attempts ]; do
+    if adb -s "$device_id" shell getprop sys.boot_completed 2>/dev/null | grep -q "1"; then
+      if adb -s "$device_id" shell getprop init.svc.bootanim 2>/dev/null | grep -q "stopped"; then
+        print_success "Emulador $device_id pronto."
+        return 0
+      fi
     fi
-    
-    # Tentar iniciar o primeiro emulador disponível
-    FIRST_EMULATOR=$(flutter emulators | grep "android" | head -1 | awk '{print $1}')
-    if [ ! -z "$FIRST_EMULATOR" ]; then
-        print_status "Iniciando emulador: $FIRST_EMULATOR"
-        flutter emulators --launch "$FIRST_EMULATOR"
-        
-        # Aguardar o emulador inicializar
-        print_status "Aguardando emulador inicializar..."
-        sleep 10
-    fi
-fi
+    echo -n "."
+    sleep 2
+    attempt=$((attempt+1))
+  done
+  print_error "Timeout aguardando boot do emulador"
+  return 1
+}
 
-# Verificar novamente os dispositivos
+get_android_device_id() {
+  # Primeiro tenta via ADB para pegar emulator-XXXX autorizado
+  local adb_id
+  adb_id=$(adb devices | awk '/^emulator-[0-9]+\s+device/ {print $1; exit}')
+  if [ -n "${adb_id:-}" ]; then
+    echo "$adb_id"; return 0
+  fi
+  # Fallback via flutter
+  flutter devices | grep -E "(android|emulator)" | head -1 | sed -E 's/.*• ([^ ]+) •.*/\1/'
+}
+
+select_android_device() {
+  # Se usuário pediu um AVD específico, vamos tentar garantir que ele esteja ativo
+  if [ -n "${ARG_AVD:-}" ]; then
+    print_status "Preferência de AVD recebida: $ARG_AVD"
+    # Se ainda não há device, tentar lançar esse AVD
+    if ! adb devices | awk '/^emulator-[0-9]+\s+device/ {found=1} END {exit found?0:1}'; then
+      print_status "Lançando AVD preferido: $ARG_AVD"
+      "$ANDROID_SDK_ROOT/emulator/emulator" -avd "$ARG_AVD" -no-snapshot-load -no-boot-anim -delay-adb -gpu host -accel on -netdelay none -netspeed full >/tmp/emulator.log 2>&1 &
+      sleep 10
+    fi
+  fi
+
+  # Device ativo e autorizado?
+  local active_id
+  active_id=$(adb devices | awk '/^emulator-[0-9]+\s+device/ {print $1; exit}')
+  if [ -n "${active_id:-}" ]; then
+    echo "$active_id"; return 0
+  fi
+
+  # Fallback via flutter
+  local devices_output android_devices device_count
+  devices_output=$(flutter devices)
+  android_devices=$(echo "$devices_output" | grep -E "(android|emulator)")
+  if [ -z "$android_devices" ]; then
+    return 1
+  fi
+  device_count=$(echo "$android_devices" | wc -l | xargs)
+  if [ "$device_count" -eq 1 ]; then
+    echo "$android_devices" | sed -E 's/.*• ([^ ]+) •.*/\1/'
+  else
+    print_status "Múltiplos dispositivos Android encontrados; selecionando o primeiro."
+    echo "$android_devices" | head -1 | sed -E 's/.*• ([^ ]+) •.*/\1/'
+  fi
+}
+
+ensure_device_or_launch_avd() {
+  local device
+  device=$(get_android_device_id || true)
+
+  if [ -z "${device:-}" ]; then
+    print_warning "Nenhum device Android autorizado. Reiniciando servidor ADB..."
+    adb kill-server || true
+    adb start-server || true
+
+    if [ "$ARG_RESET_KEYS" = "true" ]; then
+      print_warning "Apagando chaves ADB locais (por solicitação --reset-adb-keys)."
+      rm -f ~/.android/adbkey ~/.android/adbkey.pub || true
+      adb kill-server || true
+      adb start-server || true
+    fi
+
+    # Tentar lançar um AVD
+    local launch_name=""
+    if [ -n "${ARG_AVD:-}" ]; then
+      launch_name="$ARG_AVD"
+    else
+      # Tentar detectar pelo flutter emulators
+      local emu_list
+      emu_list=$(flutter emulators || true)
+      launch_name=$(echo "$emu_list" | awk '/android/ {print $1; exit}')
+    fi
+
+    if [ -n "$launch_name" ]; then
+      print_status "Lançando emulador: $launch_name"
+      # Preferir binário do emulator para cold boot consistente
+      if [ -x "$ANDROID_SDK_ROOT/emulator/emulator" ]; then
+        "$ANDROID_SDK_ROOT/emulator/emulator" -avd "$launch_name" -no-snapshot-load -no-boot-anim -delay-adb -gpu host -accel on -netdelay none -netspeed full >/tmp/emulator.log 2>&1 &
+      else
+        flutter emulators --launch "$launch_name" &
+      fi
+      sleep 10
+    else
+      print_error "Nenhum AVD encontrado. Crie um com: flutter emulators --create"
+      exit 1
+    fi
+
+    # Descobrir device após launch
+    local attempts=0
+    while [ $attempts -lt 60 ]; do
+      device=$(get_android_device_id || true)
+      [ -n "${device:-}" ] && break
+      sleep 2
+      attempts=$((attempts+1))
+    done
+
+    if [ -z "${device:-}" ]; then
+      print_error "Não foi possível detectar um device após iniciar o AVD."
+      exit 1
+    fi
+
+    wait_for_emulator "$device"
+
+    # Verificar se ainda está unauthorized e instruir usuário a aceitar prompt
+    if adb devices | awk -v id="$device" '$1==id && $2=="unauthorized"{found=1} END{exit found?0:1}'; then
+      print_warning "Device $device está 'unauthorized'. Desbloqueie o AVD e aceite o prompt 'Allow USB debugging?'."
+      print_status "Re-tentando conexão ADB em 10s..."
+      sleep 10
+    fi
+  fi
+
+  # Selecionar device final
+  select_android_device
+}
+
+# ==========================
+# Fluxo principal
+# ==========================
 print_status "Verificando dispositivos Android..."
-flutter devices
+flutter devices || true
 
-# Limpar cache se necessário (opcional)
-if [ "$1" == "--clean" ]; then
-    print_status "Limpando cache do Flutter..."
-    flutter clean
-    flutter pub get
+ANDROID_DEVICE="$(ensure_device_or_launch_avd || true)"
+if [ -z "${ANDROID_DEVICE:-}" ]; then
+  print_error "Nenhum dispositivo Android disponível para execução."
+  exit 1
 fi
 
-# Atualizar dependências
+# Sanitizar device ID (emulators têm '-')
+if ! [[ "$ANDROID_DEVICE" =~ ^[a-zA-Z0-9._:-]+$ ]]; then
+  print_error "Device ID inválido: '$ANDROID_DEVICE'"
+  exit 1
+fi
+print_success "Dispositivo Android selecionado: $ANDROID_DEVICE"
+
+# Limpeza opcional
+if [ "$ARG_CLEAN" = "true" ]; then
+  print_status "Limpando cache do Flutter..."
+  flutter clean
+  flutter pub get
+fi
+
+# Dependências
 print_status "Atualizando dependências..."
 flutter pub get
 
-# Verificar se há dispositivo Android disponível
-ANDROID_DEVICE=$(flutter devices | grep "android" | head -1 | awk '{print $4}')
-
-if [ -z "$ANDROID_DEVICE" ]; then
-    print_error "Nenhum dispositivo Android disponível para execução"
-    print_status "Dispositivos disponíveis:"
-    flutter devices
-    exit 1
+# Validar disponibilidade
+if ! flutter devices | grep -q "$ANDROID_DEVICE"; then
+  print_error "Dispositivo $ANDROID_DEVICE não está mais disponível"
+  flutter devices
+  exit 1
 fi
 
-# Remover caracteres especiais do device ID
-ANDROID_DEVICE=$(echo "$ANDROID_DEVICE" | tr -d '•')
-ANDROID_DEVICE=$(echo "$ANDROID_DEVICE" | xargs)
-
-print_success "Dispositivo Android encontrado: $ANDROID_DEVICE"
-
-# Executar o aplicativo
-print_status "Iniciando aplicativo no dispositivo Android..."
-print_status "Comandos disponíveis durante a execução:"
-print_status "  r - Hot reload"
-print_status "  R - Hot restart"
-print_status "  q - Sair"
-print_status "  h - Ajuda"
-
+# Execução
+print_status "Iniciando aplicativo no dispositivo: $ANDROID_DEVICE"
+print_status "Comandos: r (reload), R (restart), q (sair), h (ajuda)"
 echo ""
-print_success "🎯 Executando Urban Mobility App..."
+print_success "🎯 Executando Urban Mobility App no dispositivo: $ANDROID_DEVICE"
 echo ""
 
-# Executar com verbose para melhor debugging
-flutter run -d "$ANDROID_DEVICE" --verbose
+if flutter run -d "$ANDROID_DEVICE" --device-timeout 240 --verbose; then
+  print_success "Aplicativo executado com sucesso!"
+else
+  print_error "Falha na execução do aplicativo"
+  exit 1
+fi
 
 print_status "Execução finalizada."

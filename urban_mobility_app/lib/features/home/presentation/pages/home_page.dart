@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../shared/services/location_service_optimized.dart';
 import '../../../../shared/widgets/empty_state.dart';
+import '../../../../shared/widgets/place_picker_field.dart';
 import '../../../../core/di/service_locator.dart';
 
 /* [Home] Widget raiz da Home. */
@@ -19,34 +20,45 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   Timer? _locationUpdateTimer;
   late LocationServiceOptimized _locationService;
+  bool _isLocationRequested = false;
+  
+  // Lugares selecionados para origem e destino
+  SelectedPlace? _originPlace;
+  SelectedPlace? _destinationPlace;
 
   @override
   void initState() {
     super.initState();
     _locationService = sl<LocationServiceOptimized>();
     
-    /* [Home/Init] Solicita localização após primeiro frame. */
+    /* [Home/Init] Solicita localização apenas uma vez após primeiro frame. */
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _locationService.getCurrentPosition();
-      _startLocationUpdates();
+      _requestLocationOnce();
     });
   }
 
+  void _requestLocationOnce() {
+    if (!_isLocationRequested && mounted) {
+      print('[HomePage] Solicitando localização única');
+      _isLocationRequested = true;
+      _locationService.getCurrentPosition();
+    }
+  }
+
   void _startLocationUpdates() {
-    // Atualiza a localização a cada 30 segundos
-    print('[HomePage] Iniciando timer de atualização de localização');
-    _locationUpdateTimer = Timer.periodic(
-      const Duration(seconds: 30),
-      (timer) {
-        if (mounted) {
-          print('[HomePage] Timer disparado - atualizando localização');
-          _locationService.getCurrentPosition(forceRefresh: true);
-        } else {
-          print('[HomePage] Widget não está montado - cancelando timer');
-          timer.cancel();
-        }
-      },
-    );
+    // Removido: Timer periódico que causava múltiplas chamadas
+    // A localização será obtida apenas quando necessário
+    print('[HomePage] Sistema de localização única ativado');
+  }
+
+  void _refreshLocationSafely() {
+    // Evita múltiplas chamadas simultâneas
+    if (_locationService.state.status != LocationStatus.loading && mounted) {
+      print('[HomePage] Atualizando localização de forma segura');
+      _locationService.getCurrentPosition(forceRefresh: true);
+    } else {
+      print('[HomePage] Localização já está sendo obtida, ignorando chamada');
+    }
   }
 
   @override
@@ -78,7 +90,7 @@ class _HomePageState extends State<HomePage> {
           return SafeArea(
             child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
-              padding: EdgeInsets.symmetric(
+              padding: const EdgeInsets.symmetric(
                 horizontal: horizontal,
                 vertical: 16,
               ),
@@ -105,8 +117,8 @@ class _HomePageState extends State<HomePage> {
                   ),
                   const SizedBox(height: 12),
 
-                  /* Campo de busca elevado */
-                  const _SearchBarCard(),
+                  /* Campos de busca para origem e destino */
+                  _buildSearchFields(),
 
                   const SizedBox(height: 24),
 
@@ -205,7 +217,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const Spacer(),
                       if (state.status == LocationStatus.success)
-                        Icon(
+                        const Icon(
                           Icons.check_circle,
                           color: Colors.green,
                           size: 16,
@@ -241,7 +253,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                         const SizedBox(height: 8),
                         ElevatedButton.icon(
-                          onPressed: () => _locationService.getCurrentPosition(forceRefresh: true),
+                          onPressed: () => _refreshLocationSafely(),
                           icon: const Icon(Icons.refresh),
                           label: const Text('Tentar Novamente'),
                         ),
@@ -463,6 +475,107 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  /* [Home/Search] Campos de busca para origem e destino com PlacePicker. */
+  Widget _buildSearchFields() {
+    return ChangeNotifierProvider<LocationServiceOptimized>.value(
+      value: _locationService,
+      child: Consumer<LocationServiceOptimized>(
+        builder: (context, locationService, child) {
+          final currentAddress = locationService.state.status == LocationStatus.success 
+              ? locationService.state.address ?? 'Localização atual'
+              : 'Localização atual';
+          
+          return Column(
+            children: [
+              /* Campo "De onde?" com PlacePicker */
+              PlacePickerField(
+                hintText: _originPlace?.name ?? currentAddress,
+                prefixIcon: const Icon(
+                  Icons.radio_button_checked,
+                  color: Colors.green,
+                ),
+                onPlaceSelected: (place) {
+                  setState(() {
+                    _originPlace = place;
+                  });
+                  print('[HomePage] Origem selecionada: ${place.name} - ${place.address}');
+                  _checkIfCanRequestRide();
+                },
+                initialValue: _originPlace?.name,
+              ),
+              const SizedBox(height: 12),
+              
+              /* Campo "Para onde?" com PlacePicker */
+              PlacePickerField(
+                hintText: _destinationPlace?.name ?? 'Para onde?',
+                prefixIcon: const Icon(
+                  Icons.location_on,
+                  color: Colors.red,
+                ),
+                onPlaceSelected: (place) {
+                  setState(() {
+                    _destinationPlace = place;
+                  });
+                  print('[HomePage] Destino selecionado: ${place.name} - ${place.address}');
+                  _checkIfCanRequestRide();
+                },
+                initialValue: _destinationPlace?.name,
+              ),
+              
+              /* Botão para usar localização atual como origem */
+              if (_originPlace == null && locationService.state.status == LocationStatus.success)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: TextButton.icon(
+                    onPressed: () => _useCurrentLocationAsOrigin(),
+                    icon: const Icon(Icons.my_location, size: 16),
+                    label: const Text('Usar localização atual como origem'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Theme.of(context).primaryColor,
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+  
+  /* Usar localização atual como origem */
+  void _useCurrentLocationAsOrigin() {
+    final state = _locationService.state;
+    if (state.status == LocationStatus.success && state.position != null) {
+      setState(() {
+        _originPlace = SelectedPlace(
+          name: 'Localização atual',
+          address: state.address ?? 'Sua localização atual',
+          latitude: state.position!.latitude,
+          longitude: state.position!.longitude,
+        );
+      });
+      print('[HomePage] Usando localização atual como origem');
+      _checkIfCanRequestRide();
+    }
+  }
+  
+  /* Verificar se pode solicitar corrida */
+  void _checkIfCanRequestRide() {
+    if (_originPlace != null && _destinationPlace != null) {
+      // Mostrar opção para solicitar corrida
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Rota definida! Toque para solicitar corrida.'),
+          action: SnackBarAction(
+            label: 'Solicitar',
+            onPressed: () => _showRequestRideDialog(),
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
   /* [Home/Dialog] Diálogo para solicitar nova corrida. */
   void _showRequestRideDialog() {
     showDialog(
@@ -478,25 +591,104 @@ class _HomePageState extends State<HomePage> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const TextField(
-              decoration: InputDecoration(
-                labelText: 'De onde?',
-                prefixIcon: Icon(
-                  Icons.radio_button_checked,
-                  color: Colors.green,
-                ),
-                border: OutlineInputBorder(),
+            /* Origem selecionada */
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.radio_button_checked,
+                    color: Colors.green,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'De onde?',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        Text(
+                          _originPlace?.name ?? 'Origem não selecionada',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        if (_originPlace?.address != null)
+                          Text(
+                            _originPlace!.address,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 16),
-            const TextField(
-              decoration: InputDecoration(
-                labelText: 'Para onde?',
-                prefixIcon: Icon(Icons.location_on, color: Colors.red),
-                border: OutlineInputBorder(),
+            
+            /* Destino selecionado */
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.location_on, color: Colors.red),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Para onde?',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        Text(
+                          _destinationPlace?.name ?? 'Destino não selecionado',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        if (_destinationPlace?.address != null)
+                          Text(
+                            _destinationPlace!.address,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 16),
+            
+            /* Informação sobre estimativa */
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -524,12 +716,12 @@ class _HomePageState extends State<HomePage> {
             child: const Text('Cancelar'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: (_originPlace != null && _destinationPlace != null) ? () {
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: const Text(
-                    'Corrida solicitada! Buscando motoristas próximos...',
+                  content: Text(
+                    'Corrida solicitada de ${_originPlace!.name} para ${_destinationPlace!.name}! Buscando motoristas próximos...',
                   ),
                   backgroundColor: Theme.of(context).primaryColor,
                   action: SnackBarAction(
@@ -539,7 +731,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               );
-            },
+            } : null,
             child: const Text('Solicitar Corrida'),
           ),
         ],
@@ -580,31 +772,47 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-class _SearchBarCard extends StatelessWidget {
-  const _SearchBarCard();
+class _SearchFieldCard extends StatelessWidget {
+  final String hintText;
+  final Widget prefixIcon;
+  final Widget? suffixIcon;
+  final VoidCallback? onTap;
+  final bool readOnly;
+
+  const _SearchFieldCard({
+    required this.hintText,
+    required this.prefixIcon,
+    this.suffixIcon,
+    this.onTap,
+    this.readOnly = true,
+  });
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final surface = colorScheme.surface;
+    
     return Material(
       color: surface,
       elevation: 3,
       borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: TextField(
-          decoration: InputDecoration(
-            hintText: 'Para onde?',
-            hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: colorScheme.onSurface.withOpacity(0.6),
-            ),
-            border: InputBorder.none,
-            prefixIcon: const Icon(Icons.search),
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.mic_none),
-              onPressed: () {}, // apenas UI
-              tooltip: 'Falar',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: TextField(
+            readOnly: readOnly,
+            onTap: onTap,
+            decoration: InputDecoration(
+              hintText: hintText,
+              hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurface.withOpacity(0.6),
+              ),
+              border: InputBorder.none,
+              prefixIcon: prefixIcon,
+              suffixIcon: suffixIcon,
+              contentPadding: const EdgeInsets.symmetric(vertical: 16),
             ),
           ),
         ),

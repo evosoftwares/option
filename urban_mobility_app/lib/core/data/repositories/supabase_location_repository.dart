@@ -258,8 +258,10 @@ class SupabaseLocationRepository {
         'updated_at': DateTime.now().toIso8601String(),
       };
       
+      // Se a coluna 'metadata' no Supabase for JSONB, podemos enviar Map diretamente.
+      // Caso seja TEXT/VARCHAR, faça jsonEncode. Aqui tratamos ambos os casos:
       if (metadata != null) {
-        updateData['metadata'] = metadata;
+        updateData['metadata'] = metadata; // JSONB suportado
       }
       
       await _supabaseService

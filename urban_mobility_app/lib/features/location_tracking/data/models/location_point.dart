@@ -7,6 +7,47 @@ part 'location_point.g.dart';
 
 @collection
 class LocationPoint {
+  
+  LocationPoint();
+  
+  LocationPoint.create({
+    required this.lat,
+    required this.lng,
+    required this.accuracy,
+    this.altitude,
+    this.speed,
+    this.heading,
+    required this.recordedAt,
+    this.activityType = 'unknown',
+    this.batteryLevel = 100,
+    this.networkType = 'unknown',
+    Map<String, dynamic>? deviceInfo,
+  }) {
+    if (deviceInfo != null) {
+      deviceInfoJson = jsonEncode(deviceInfo);
+    }
+  }
+  
+  factory LocationPoint.fromJson(Map<String, dynamic> json) {
+    final point = LocationPoint();
+    point.id = json['id'] ?? Isar.autoIncrement;
+    point.lat = (json['lat'] as num).toDouble();
+    point.lng = (json['lng'] as num).toDouble();
+    point.accuracy = (json['accuracy'] as num).toDouble();
+    point.altitude = json['altitude']?.toDouble();
+    point.speed = json['speed']?.toDouble();
+    point.heading = json['heading']?.toDouble();
+    point.recordedAt = DateTime.parse(json['recordedAt']);
+    point.syncedAt = json['syncedAt'] != null ? DateTime.parse(json['syncedAt']) : null;
+    point.activityType = json['activityType'] ?? 'unknown';
+    point.batteryLevel = json['batteryLevel'] ?? 100;
+    point.networkType = json['networkType'] ?? 'unknown';
+    point.syncedToSupabase = json['syncedToSupabase'] ?? false;
+    point.syncedToFirebase = json['syncedToFirebase'] ?? false;
+    point.deviceInfo = json['deviceInfo'] ?? {};
+    point.lastError = json['lastError'];
+    return point;
+  }
   Id id = Isar.autoIncrement;
   
   // Coordenadas
@@ -33,26 +74,6 @@ class LocationPoint {
   // Metadados como String JSON
   String deviceInfoJson = '{}';
   String? lastError;
-  
-  LocationPoint();
-  
-  LocationPoint.create({
-    required this.lat,
-    required this.lng,
-    required this.accuracy,
-    this.altitude,
-    this.speed,
-    this.heading,
-    required this.recordedAt,
-    this.activityType = 'unknown',
-    this.batteryLevel = 100,
-    this.networkType = 'unknown',
-    Map<String, dynamic>? deviceInfo,
-  }) {
-    if (deviceInfo != null) {
-      deviceInfoJson = jsonEncode(deviceInfo);
-    }
-  }
   
   // Getter para deviceInfo
   @ignore
@@ -126,31 +147,43 @@ class LocationPoint {
       'lastError': lastError,
     };
   }
-  
-  factory LocationPoint.fromJson(Map<String, dynamic> json) {
-    final point = LocationPoint();
-    point.id = json['id'] ?? Isar.autoIncrement;
-    point.lat = (json['lat'] as num).toDouble();
-    point.lng = (json['lng'] as num).toDouble();
-    point.accuracy = (json['accuracy'] as num).toDouble();
-    point.altitude = json['altitude']?.toDouble();
-    point.speed = json['speed']?.toDouble();
-    point.heading = json['heading']?.toDouble();
-    point.recordedAt = DateTime.parse(json['recordedAt']);
-    point.syncedAt = json['syncedAt'] != null ? DateTime.parse(json['syncedAt']) : null;
-    point.activityType = json['activityType'] ?? 'unknown';
-    point.batteryLevel = json['batteryLevel'] ?? 100;
-    point.networkType = json['networkType'] ?? 'unknown';
-    point.syncedToSupabase = json['syncedToSupabase'] ?? false;
-    point.syncedToFirebase = json['syncedToFirebase'] ?? false;
-    point.deviceInfo = json['deviceInfo'] ?? {};
-    point.lastError = json['lastError'];
-    return point;
-  }
 }
 
 @collection
 class TrackingSession {
+  
+  TrackingSession();
+  
+  TrackingSession.create({
+    required this.userId,
+    this.trackingMode = 'adaptive',
+    Map<String, dynamic>? deviceInfo,
+  }) {
+    sessionId = '${userId}_${DateTime.now().millisecondsSinceEpoch}';
+    startedAt = DateTime.now();
+    isActive = true;
+    
+    if (deviceInfo != null) {
+      deviceInfoJson = jsonEncode(deviceInfo);
+    }
+  }
+  
+  factory TrackingSession.fromJson(Map<String, dynamic> json) {
+    final session = TrackingSession();
+    session.id = json['id'] ?? Isar.autoIncrement;
+    session.sessionId = json['sessionId'];
+    session.userId = json['userId'];
+    session.startedAt = DateTime.parse(json['startedAt']);
+    session.endedAt = json['endedAt'] != null ? DateTime.parse(json['endedAt']) : null;
+    session.trackingMode = json['trackingMode'] ?? 'adaptive';
+    session.isActive = json['isActive'] ?? true;
+    session.totalDistance = (json['totalDistance'] as num?)?.toDouble() ?? 0.0;
+    session.pointsCollected = json['pointsCollected'] ?? 0;
+    session.batteryConsumed = json['batteryConsumed'] ?? 0;
+    session.deviceInfo = json['deviceInfo'] ?? {};
+    session.lastError = json['lastError'];
+    return session;
+  }
   Id id = Isar.autoIncrement;
   
   // Identificadores
@@ -173,22 +206,6 @@ class TrackingSession {
   // Metadados como String JSON
   String deviceInfoJson = '{}';
   String? lastError;
-  
-  TrackingSession();
-  
-  TrackingSession.create({
-    required this.userId,
-    this.trackingMode = 'adaptive',
-    Map<String, dynamic>? deviceInfo,
-  }) {
-    sessionId = '${userId}_${DateTime.now().millisecondsSinceEpoch}';
-    startedAt = DateTime.now();
-    isActive = true;
-    
-    if (deviceInfo != null) {
-      deviceInfoJson = jsonEncode(deviceInfo);
-    }
-  }
   
   // Getter para deviceInfo
   @ignore
@@ -239,22 +256,5 @@ class TrackingSession {
       'deviceInfo': deviceInfo,
       'lastError': lastError,
     };
-  }
-  
-  factory TrackingSession.fromJson(Map<String, dynamic> json) {
-    final session = TrackingSession();
-    session.id = json['id'] ?? Isar.autoIncrement;
-    session.sessionId = json['sessionId'];
-    session.userId = json['userId'];
-    session.startedAt = DateTime.parse(json['startedAt']);
-    session.endedAt = json['endedAt'] != null ? DateTime.parse(json['endedAt']) : null;
-    session.trackingMode = json['trackingMode'] ?? 'adaptive';
-    session.isActive = json['isActive'] ?? true;
-    session.totalDistance = (json['totalDistance'] as num?)?.toDouble() ?? 0.0;
-    session.pointsCollected = json['pointsCollected'] ?? 0;
-    session.batteryConsumed = json['batteryConsumed'] ?? 0;
-    session.deviceInfo = json['deviceInfo'] ?? {};
-    session.lastError = json['lastError'];
-    return session;
   }
 }

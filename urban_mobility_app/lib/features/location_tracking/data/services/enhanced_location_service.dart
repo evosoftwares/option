@@ -29,6 +29,8 @@ import '../models/location_point.dart';
 /// - Criptografia de dados sensíveis
 /// - Recuperação robusta de falhas
 class EnhancedLocationService {
+  
+  EnhancedLocationService._();
   static const String _channelId = 'enhanced_location_tracking';
   static const int _notificationId = 888;
   static const String _encryptionKey = 'location_tracking_key_32_chars!!';
@@ -66,8 +68,6 @@ class EnhancedLocationService {
   // Estado de conectividade
   bool _isOnline = true;
   String _networkType = 'unknown';
-  
-  EnhancedLocationService._();
   
   static final EnhancedLocationService _instance = EnhancedLocationService._();
   static EnhancedLocationService get instance => _instance;

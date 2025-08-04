@@ -10,12 +10,6 @@ import '../../domain/repositories/location_repository.dart';
 /// Este repositório implementa o padrão Decorator, adicionando funcionalidades
 /// de sincronização com Supabase ao repositório local existente.
 class HybridLocationRepository implements LocationRepository {
-  final LocationRepository _localRepository;
-  final SupabaseLocationRepository _supabaseRepository;
-  final String _userId;
-  
-  StreamController<EnhancedLocationData>? _locationController;
-  StreamSubscription<EnhancedLocationData>? _localSubscription;
   
   HybridLocationRepository({
     required LocationRepository localRepository,
@@ -24,6 +18,12 @@ class HybridLocationRepository implements LocationRepository {
   }) : _localRepository = localRepository,
        _supabaseRepository = supabaseRepository,
        _userId = userId;
+  final LocationRepository _localRepository;
+  final SupabaseLocationRepository _supabaseRepository;
+  final String _userId;
+  
+  StreamController<EnhancedLocationData>? _locationController;
+  StreamSubscription<EnhancedLocationData>? _localSubscription;
 
   @override
   Future<EnhancedLocationData> getCurrentLocation(TrackingConfig config) async {

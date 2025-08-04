@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:urban_mobility_app/core/data/repositories/supabase_location_repository.dart';
-import 'package:urban_mobility_app/core/services/supabase_service.dart';
-import 'package:urban_mobility_app/features/location_tracking/data/repositories/hybrid_location_repository.dart';
-import 'package:urban_mobility_app/features/location_tracking/data/repositories/location_repository_impl.dart';
-import 'package:urban_mobility_app/features/location_tracking/data/data_sources/location_data_source.dart';
-import 'package:urban_mobility_app/features/location_tracking/domain/repositories/location_repository.dart';
+import '../../../../core/data/repositories/supabase_location_repository.dart';
+import '../../../../core/services/supabase_service.dart';
+import 'hybrid_location_repository.dart';
+import 'location_repository_impl.dart';
+import '../data_sources/location_data_source.dart';
+import '../../domain/repositories/location_repository.dart';
 
 /// Configuração das dependências para o HybridLocationRepository
 /// 

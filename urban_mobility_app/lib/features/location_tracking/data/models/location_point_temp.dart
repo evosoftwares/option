@@ -1,8 +1,55 @@
-import 'dart:convert';
 import 'dart:math' as math;
 
 // Versão temporária sem Isar para testar o aplicativo
 class LocationPoint {
+
+  LocationPoint({
+    this.id,
+    required this.lat,
+    required this.lng,
+    required this.accuracy,
+    this.altitude,
+    this.speed,
+    this.heading,
+    required this.recordedAt,
+    this.syncedAt,
+    this.activityType,
+    this.isValid = true,
+    this.lastError,
+    this.deviceInfoJson,
+    this.networkType,
+    this.batteryLevel,
+    this.syncedToFirebase = false,
+    this.syncedToSupabase = false,
+  });
+
+  // Conversão de Map (do SQLite)
+  factory LocationPoint.fromMap(Map<String, dynamic> map) {
+    return LocationPoint(
+      id: map['id'],
+      lat: map['lat']?.toDouble() ?? 0.0,
+      lng: map['lng']?.toDouble() ?? 0.0,
+      accuracy: map['accuracy']?.toDouble() ?? 0.0,
+      altitude: map['altitude']?.toDouble(),
+      speed: map['speed']?.toDouble(),
+      heading: map['heading']?.toDouble(),
+      recordedAt: DateTime.fromMillisecondsSinceEpoch(map['recordedAt'] ?? 0),
+      syncedAt: map['syncedAt'] != null 
+          ? DateTime.fromMillisecondsSinceEpoch(map['syncedAt']) 
+          : null,
+      activityType: map['activityType'],
+      isValid: (map['isValid'] ?? 1) == 1,
+      lastError: map['lastError'],
+      deviceInfoJson: map['deviceInfoJson'],
+      networkType: map['networkType'],
+      batteryLevel: map['batteryLevel'],
+      syncedToFirebase: (map['syncedToFirebase'] ?? 0) == 1,
+      syncedToSupabase: (map['syncedToSupabase'] ?? 0) == 1,
+    );
+  }
+
+  // Conversão de JSON
+  factory LocationPoint.fromJson(Map<String, dynamic> json) => LocationPoint.fromMap(json);
   int? id;
   
   // Coordenadas
@@ -31,26 +78,6 @@ class LocationPoint {
   bool syncedToFirebase = false;
   bool syncedToSupabase = false;
 
-  LocationPoint({
-    this.id,
-    required this.lat,
-    required this.lng,
-    required this.accuracy,
-    this.altitude,
-    this.speed,
-    this.heading,
-    required this.recordedAt,
-    this.syncedAt,
-    this.activityType,
-    this.isValid = true,
-    this.lastError,
-    this.deviceInfoJson,
-    this.networkType,
-    this.batteryLevel,
-    this.syncedToFirebase = false,
-    this.syncedToSupabase = false,
-  });
-
   // Conversão para Map (para SQLite)
   Map<String, dynamic> toMap() {
     return {
@@ -74,36 +101,8 @@ class LocationPoint {
     };
   }
 
-  // Conversão de Map (do SQLite)
-  factory LocationPoint.fromMap(Map<String, dynamic> map) {
-    return LocationPoint(
-      id: map['id'],
-      lat: map['lat']?.toDouble() ?? 0.0,
-      lng: map['lng']?.toDouble() ?? 0.0,
-      accuracy: map['accuracy']?.toDouble() ?? 0.0,
-      altitude: map['altitude']?.toDouble(),
-      speed: map['speed']?.toDouble(),
-      heading: map['heading']?.toDouble(),
-      recordedAt: DateTime.fromMillisecondsSinceEpoch(map['recordedAt'] ?? 0),
-      syncedAt: map['syncedAt'] != null 
-          ? DateTime.fromMillisecondsSinceEpoch(map['syncedAt']) 
-          : null,
-      activityType: map['activityType'],
-      isValid: (map['isValid'] ?? 1) == 1,
-      lastError: map['lastError'],
-      deviceInfoJson: map['deviceInfoJson'],
-      networkType: map['networkType'],
-      batteryLevel: map['batteryLevel'],
-      syncedToFirebase: (map['syncedToFirebase'] ?? 0) == 1,
-      syncedToSupabase: (map['syncedToSupabase'] ?? 0) == 1,
-    );
-  }
-
   // Conversão para JSON
   Map<String, dynamic> toJson() => toMap();
-
-  // Conversão de JSON
-  factory LocationPoint.fromJson(Map<String, dynamic> json) => LocationPoint.fromMap(json);
 
   // Cálculo de distância entre dois pontos
   double distanceTo(LocationPoint other) {
@@ -120,6 +119,38 @@ class LocationPoint {
 
 // Versão temporária da TrackingSession sem Isar
 class TrackingSession {
+
+  TrackingSession({
+    this.id,
+    required this.sessionId,
+    required this.userId,
+    required this.startedAt,
+    this.endedAt,
+    this.trackingMode = 'adaptive',
+    this.isActive = true,
+    this.totalDistance = 0.0,
+    this.pointsCollected = 0,
+    this.batteryConsumed = 0,
+    this.deviceInfoJson,
+  });
+
+  factory TrackingSession.fromMap(Map<String, dynamic> map) {
+    return TrackingSession(
+      id: map['id'],
+      sessionId: map['sessionId'] ?? '',
+      userId: map['userId'] ?? '',
+      startedAt: DateTime.fromMillisecondsSinceEpoch(map['startedAt'] ?? 0),
+      endedAt: map['endedAt'] != null 
+          ? DateTime.fromMillisecondsSinceEpoch(map['endedAt']) 
+          : null,
+      trackingMode: map['trackingMode'] ?? 'adaptive',
+      isActive: (map['isActive'] ?? 1) == 1,
+      totalDistance: map['totalDistance']?.toDouble() ?? 0.0,
+      pointsCollected: map['pointsCollected'] ?? 0,
+      batteryConsumed: map['batteryConsumed'] ?? 0,
+      deviceInfoJson: map['deviceInfoJson'],
+    );
+  }
   int? id;
   
   // Identificadores
@@ -142,20 +173,6 @@ class TrackingSession {
   // Informações do dispositivo
   String? deviceInfoJson;
 
-  TrackingSession({
-    this.id,
-    required this.sessionId,
-    required this.userId,
-    required this.startedAt,
-    this.endedAt,
-    this.trackingMode = 'adaptive',
-    this.isActive = true,
-    this.totalDistance = 0.0,
-    this.pointsCollected = 0,
-    this.batteryConsumed = 0,
-    this.deviceInfoJson,
-  });
-
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -170,23 +187,5 @@ class TrackingSession {
       'batteryConsumed': batteryConsumed,
       'deviceInfoJson': deviceInfoJson,
     };
-  }
-
-  factory TrackingSession.fromMap(Map<String, dynamic> map) {
-    return TrackingSession(
-      id: map['id'],
-      sessionId: map['sessionId'] ?? '',
-      userId: map['userId'] ?? '',
-      startedAt: DateTime.fromMillisecondsSinceEpoch(map['startedAt'] ?? 0),
-      endedAt: map['endedAt'] != null 
-          ? DateTime.fromMillisecondsSinceEpoch(map['endedAt']) 
-          : null,
-      trackingMode: map['trackingMode'] ?? 'adaptive',
-      isActive: (map['isActive'] ?? 1) == 1,
-      totalDistance: map['totalDistance']?.toDouble() ?? 0.0,
-      pointsCollected: map['pointsCollected'] ?? 0,
-      batteryConsumed: map['batteryConsumed'] ?? 0,
-      deviceInfoJson: map['deviceInfoJson'],
-    );
   }
 }

@@ -10,11 +10,11 @@ import '../providers/location_tracking_provider.dart';
 class LocationDisplay extends StatelessWidget {
 
   const LocationDisplay({
-    Key? key,
+    super.key,
     this.showHistory = true,
     this.showStatistics = true,
     this.maxHistoryItems = 10,
-  }) : super(key: key);
+  });
   final bool showHistory;
   final bool showStatistics;
   final int maxHistoryItems;

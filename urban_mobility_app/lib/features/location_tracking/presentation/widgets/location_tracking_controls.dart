@@ -11,10 +11,10 @@ import '../providers/location_tracking_provider.dart';
 class LocationTrackingControls extends StatelessWidget {
 
   const LocationTrackingControls({
-    Key? key,
+    super.key,
     this.onLocationUpdate,
     this.showAdvancedControls = false,
-  }) : super(key: key);
+  });
   final VoidCallback? onLocationUpdate;
   final bool showAdvancedControls;
 

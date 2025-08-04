@@ -2,10 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 
 /// Estados de permissão de localização
 enum LocationPermissionState {
@@ -35,6 +33,8 @@ enum UsageContext {
 
 /// Gerenciador de permissões progressivas com estratégias educativas
 class PermissionManager {
+  
+  PermissionManager._();
   static const String _keyPermissionRequests = 'permission_requests_count';
   static const String _keyLastRequest = 'last_permission_request';
   static const String _keyUserEducated = 'user_educated_location';
@@ -43,8 +43,6 @@ class PermissionManager {
   
   static final PermissionManager _instance = PermissionManager._();
   static PermissionManager get instance => _instance;
-  
-  PermissionManager._();
   
   late final SharedPreferences _prefs;
   bool _initialized = false;

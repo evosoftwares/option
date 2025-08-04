@@ -1,14 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 
@@ -35,16 +32,6 @@ enum TrackingMode {
 
 /// Configurações do serviço de background
 class BackgroundServiceConfig {
-  final TrackingMode mode;
-  final Duration minInterval;
-  final Duration maxInterval;
-  final double minDistance;
-  final LocationAccuracy accuracy;
-  final bool enableAdaptiveTracking;
-  final bool enableBatteryOptimization;
-  final bool enableMotionDetection;
-  final int maxCachedPoints;
-  final Duration syncInterval;
   
   const BackgroundServiceConfig({
     this.mode = TrackingMode.adaptive,
@@ -58,19 +45,6 @@ class BackgroundServiceConfig {
     this.maxCachedPoints = 1000,
     this.syncInterval = const Duration(minutes: 5),
   });
-  
-  Map<String, dynamic> toJson() => {
-    'mode': mode.index,
-    'minInterval': minInterval.inMilliseconds,
-    'maxInterval': maxInterval.inMilliseconds,
-    'minDistance': minDistance,
-    'accuracy': accuracy.index,
-    'enableAdaptiveTracking': enableAdaptiveTracking,
-    'enableBatteryOptimization': enableBatteryOptimization,
-    'enableMotionDetection': enableMotionDetection,
-    'maxCachedPoints': maxCachedPoints,
-    'syncInterval': syncInterval.inMilliseconds,
-  };
   
   factory BackgroundServiceConfig.fromJson(Map<String, dynamic> json) {
     return BackgroundServiceConfig(
@@ -86,19 +60,33 @@ class BackgroundServiceConfig {
       syncInterval: Duration(milliseconds: json['syncInterval'] ?? 300000),
     );
   }
+  final TrackingMode mode;
+  final Duration minInterval;
+  final Duration maxInterval;
+  final double minDistance;
+  final LocationAccuracy accuracy;
+  final bool enableAdaptiveTracking;
+  final bool enableBatteryOptimization;
+  final bool enableMotionDetection;
+  final int maxCachedPoints;
+  final Duration syncInterval;
+  
+  Map<String, dynamic> toJson() => {
+    'mode': mode.index,
+    'minInterval': minInterval.inMilliseconds,
+    'maxInterval': maxInterval.inMilliseconds,
+    'minDistance': minDistance,
+    'accuracy': accuracy.index,
+    'enableAdaptiveTracking': enableAdaptiveTracking,
+    'enableBatteryOptimization': enableBatteryOptimization,
+    'enableMotionDetection': enableMotionDetection,
+    'maxCachedPoints': maxCachedPoints,
+    'syncInterval': syncInterval.inMilliseconds,
+  };
 }
 
 /// Estatísticas do serviço de background
 class BackgroundServiceStats {
-  final DateTime startTime;
-  final Duration uptime;
-  final int pointsCollected;
-  final int pointsSynced;
-  final int syncErrors;
-  final double batteryUsage;
-  final TrackingMode currentMode;
-  final DateTime? lastSync;
-  final DateTime? lastLocation;
   
   const BackgroundServiceStats({
     required this.startTime,
@@ -111,6 +99,15 @@ class BackgroundServiceStats {
     this.lastSync,
     this.lastLocation,
   });
+  final DateTime startTime;
+  final Duration uptime;
+  final int pointsCollected;
+  final int pointsSynced;
+  final int syncErrors;
+  final double batteryUsage;
+  final TrackingMode currentMode;
+  final DateTime? lastSync;
+  final DateTime? lastLocation;
   
   Map<String, dynamic> toJson() => {
     'startTime': startTime.toIso8601String(),
@@ -127,6 +124,8 @@ class BackgroundServiceStats {
 
 /// Serviço de localização em background otimizado
 class BackgroundLocationService {
+  
+  BackgroundLocationService._();
   static const String _serviceName = 'background_location_service';
   static const String _channelName = 'location_tracking_channel';
   static const String _notificationId = 'location_tracking_notification';
@@ -139,8 +138,6 @@ class BackgroundLocationService {
   
   static final BackgroundLocationService _instance = BackgroundLocationService._();
   static BackgroundLocationService get instance => _instance;
-  
-  BackgroundLocationService._();
   
   final FlutterBackgroundService _backgroundService = FlutterBackgroundService();
   BackgroundServiceState _state = BackgroundServiceState.stopped;
@@ -250,7 +247,7 @@ class BackgroundLocationService {
     try {
       _updateState(BackgroundServiceState.stopping);
       
-      await _backgroundService.invoke('stop');
+      _backgroundService.invoke('stop');
       _updateState(BackgroundServiceState.stopped);
       debugPrint('✅ Serviço de tracking parado');
       return true;
@@ -268,7 +265,7 @@ class BackgroundLocationService {
     }
     
     try {
-      await _backgroundService.invoke('pause');
+      _backgroundService.invoke('pause');
       _updateState(BackgroundServiceState.paused);
       debugPrint('⏸️ Tracking pausado');
       return true;
@@ -285,7 +282,7 @@ class BackgroundLocationService {
     }
     
     try {
-      await _backgroundService.invoke('resume');
+      _backgroundService.invoke('resume');
       _updateState(BackgroundServiceState.running);
       debugPrint('▶️ Tracking resumido');
       return true;
@@ -303,7 +300,7 @@ class BackgroundLocationService {
       
       // Enviar nova configuração para o serviço
       if (_state == BackgroundServiceState.running) {
-        await _backgroundService.invoke('updateConfig', {
+        _backgroundService.invoke('updateConfig', {
           'config': newConfig.toJson(),
         });
       }
@@ -324,7 +321,7 @@ class BackgroundLocationService {
     }
     
     try {
-      await _backgroundService.invoke('forceSync');
+      _backgroundService.invoke('forceSync');
       debugPrint('🔄 Sincronização forçada');
       return true;
       
@@ -341,7 +338,7 @@ class BackgroundLocationService {
     }
     
     try {
-      final result = await _backgroundService.invoke('getStats');
+      final result = _backgroundService.invoke('getStats');
       
       if (result != null && result is Map<String, dynamic>) {
         return BackgroundServiceStats(
@@ -445,7 +442,7 @@ class BackgroundLocationService {
     // Listener para atualizações de localização
     _backgroundService.on(_keyLocationUpdate).listen((event) {
       try {
-        if (event != null && event is Map<String, dynamic>) {
+        if (event != null) {
           final locationPoint = LocationPoint.fromJson(event);
           _locationController.add(locationPoint);
         }
@@ -457,7 +454,7 @@ class BackgroundLocationService {
     // Listener para estatísticas
     _backgroundService.on(_keyStats).listen((event) {
       try {
-        if (event != null && event is Map<String, dynamic>) {
+        if (event != null) {
           final stats = BackgroundServiceStats(
             startTime: DateTime.parse(event['startTime']),
             uptime: Duration(milliseconds: event['uptime']),
@@ -550,6 +547,9 @@ class BackgroundLocationService {
 
 /// Engine de tracking que roda no isolate de background
 class _BackgroundTrackingEngine {
+  
+  _BackgroundTrackingEngine(this.service, this.config) 
+      : _currentMode = config.mode;
   final ServiceInstance service;
   BackgroundServiceConfig config;
   
@@ -572,9 +572,6 @@ class _BackgroundTrackingEngine {
   DateTime? _lastMovement;
   double _currentSpeed = 0.0;
   LocationPoint? _lastLocationPoint;
-  
-  _BackgroundTrackingEngine(this.service, this.config) 
-      : _currentMode = config.mode;
   
   Future<void> initialize() async {
     _locationService = EnhancedLocationService();
@@ -813,7 +810,7 @@ class _BackgroundTrackingEngine {
   Future<void> _syncPendingData() async {
     try {
       // Simular sincronização - implementar com serviço real
-      final syncedCount = 5; // await _locationService.syncPendingData();
+      const syncedCount = 5; // await _locationService.syncPendingData();
       _pointsSynced += syncedCount;
       _lastSync = DateTime.now();
       

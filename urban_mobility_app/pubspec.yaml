@@ -39,6 +39,7 @@ dependencies:
   google_maps_flutter: ^2.5.0
   geolocator: ^10.1.0
   geocoding: ^2.1.1
+  google_places_flutter: ^2.1.0
   
   # Estado e Navegação - Migrado para Riverpod
   flutter_riverpod: ^2.4.9

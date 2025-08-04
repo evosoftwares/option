@@ -6,10 +6,10 @@ import '../config/supabase_config.dart';
 /// Este serviço centraliza todas as operações relacionadas ao Supabase,
 /// incluindo inicialização, autenticação e acesso ao cliente.
 class SupabaseService {
-  static SupabaseService? _instance;
-  static SupabaseService get instance => _instance ??= SupabaseService._();
   
   SupabaseService._();
+  static SupabaseService? _instance;
+  static SupabaseService get instance => _instance ??= SupabaseService._();
   
   /// Cliente do Supabase
   SupabaseClient get client => Supabase.instance.client;

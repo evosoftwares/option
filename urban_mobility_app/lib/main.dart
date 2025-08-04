@@ -11,6 +11,12 @@ import 'features/rides/presentation/pages/rides_page.dart';
 import 'features/profile/presentation/pages/profile_page.dart';
 import 'features/location_tracking/presentation/screens/location_tracking_screen.dart';
 import 'features/location_tracking/di/location_tracking_dependencies.dart';
+import 'features/chat/presentation/pages/chat_list_page.dart';
+import 'features/chat/presentation/pages/chat_page.dart';
+import 'features/chat/presentation/providers/chat_provider.dart';
+import 'features/chat/presentation/providers/chat_list_provider.dart';
+import 'features/chat/data/services/chat_service.dart';
+import 'features/chat/data/repositories/chat_repository_impl.dart';
 
 /* [App Entry] Inicializa o app + Firebase + Supabase + Service Locator. */
 import 'package:firebase_core/firebase_core.dart';
@@ -43,6 +49,16 @@ class InDriverApp extends StatelessWidget {
       /* [App Entry/Providers] Serviços injetados no app. */
       providers: [
         ...LocationTrackingDependencies.getProviders(),
+        ChangeNotifierProvider(
+          create: (_) => ChatListProvider(
+            ChatRepositoryImpl(ChatService()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => ChatProvider(
+            ChatRepositoryImpl(ChatService()),
+          ),
+        ),
       ],
       child: MaterialApp.router(
         title: 'InDriver - Defina seu preço!',
@@ -67,6 +83,14 @@ final GoRouter _router = GoRouter(
     GoRoute(path: '/rides', builder: (context, state) => const RidesPage()),
     GoRoute(path: '/profile', builder: (context, state) => const ProfilePage()),
     GoRoute(path: '/location-tracking', builder: (context, state) => const LocationTrackingScreen()),
+    GoRoute(path: '/chat', builder: (context, state) => const ChatListPage()),
+    GoRoute(
+      path: '/chat/:conversationId',
+      builder: (context, state) {
+        final conversationId = state.pathParameters['conversationId']!;
+        return ChatPage(conversationId: conversationId);
+      },
+    ),
   ],
 );
 
@@ -87,6 +111,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   final List<Widget> _pages = [
     const HomePage(),
     const RidesPage(),
+    const ChatListPage(),
     const ProfilePage(),
   ];
 
@@ -107,6 +132,10 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
           BottomNavigationBarItem(
             icon: Icon(Icons.directions_car),
             label: 'Corridas',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.chat_bubble_outline),
+            label: 'Chat',
           ),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Perfil'),
         ],

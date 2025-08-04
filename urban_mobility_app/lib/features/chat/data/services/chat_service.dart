@@ -1,84 +1,153 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/chat_message.dart';
-import '../models/chat_conversation.dart';
-import '../models/chat_participant.dart';
+import '../../domain/models/chat_message.dart';
+import '../../domain/models/chat_conversation.dart';
 
 class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  static const String _conversationsCollection = 'conversations';
-  static const String _messagesCollection = 'messages';
+  // Conversações
+  CollectionReference get _conversationsRef =>
+      _firestore.collection('conversations');
 
-  CollectionReference<ChatConversation> get _conversations =>
-      _firestore.collection(_conversationsCollection).withConverter<ChatConversation>(
-        fromFirestore: (snapshot, options) => ChatConversation.fromFirestore(snapshot, options),
-        toFirestore: (conversation, options) => conversation.toFirestore(),
-      );
+  // Mensagens
+  CollectionReference _messagesRef(String conversationId) =>
+      _conversationsRef.doc(conversationId).collection('messages');
 
-  CollectionReference<ChatMessage> get _messages =>
-      _firestore.collection(_messagesCollection).withConverter<ChatMessage>(
-        fromFirestore: (snapshot, options) => ChatMessage.fromFirestore(snapshot, options),
-        toFirestore: (message, options) => message.toFirestore(),
-      );
+  // Converter Firestore para ChatConversation
+  ChatConversation _conversationFromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return ChatConversation(
+      id: doc.id,
+      title: data['title'] ?? '',
+      type: ConversationType.values.firstWhere(
+        (e) => e.toString() == 'ConversationType.${data['type']}',
+        orElse: () => ConversationType.ride,
+      ),
+      status: ConversationStatus.values.firstWhere(
+        (e) => e.toString() == 'ConversationStatus.${data['status']}',
+        orElse: () => ConversationStatus.active,
+      ),
+      participantIds: List<String>.from(data['participantIds'] ?? []),
+      rideId: data['rideId'],
+      createdAt: (data['createdAt'] as Timestamp).toDate(),
+      updatedAt: (data['updatedAt'] as Timestamp).toDate(),
+      lastMessageId: data['lastMessageId'],
+      lastMessageAt: data['lastMessageAt'] != null
+          ? (data['lastMessageAt'] as Timestamp).toDate()
+          : null,
+      metadata: data['metadata'],
+    );
+  }
 
-  Future<ChatConversation> createConversation({
-    required String rideId,
-    required String driverId,
-    required String driverName,
-    required String passengerId,
-    required String passengerName,
+  // Converter ChatConversation para Firestore
+  Map<String, dynamic> _conversationToFirestore(ChatConversation conversation) {
+    return {
+      'title': conversation.title,
+      'type': conversation.type.toString().split('.').last,
+      'status': conversation.status.toString().split('.').last,
+      'participantIds': conversation.participantIds,
+      'rideId': conversation.rideId,
+      'createdAt': Timestamp.fromDate(conversation.createdAt),
+      'updatedAt': Timestamp.fromDate(conversation.updatedAt),
+      'lastMessageId': conversation.lastMessageId,
+      'lastMessageAt': conversation.lastMessageAt != null
+          ? Timestamp.fromDate(conversation.lastMessageAt!)
+          : null,
+      'metadata': conversation.metadata,
+    };
+  }
+
+  // Converter Firestore para ChatMessage
+  ChatMessage _messageFromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return ChatMessage(
+      id: doc.id,
+      conversationId: data['conversationId'] ?? '',
+      senderId: data['senderId'] ?? '',
+      senderName: data['senderName'] ?? '',
+      content: data['content'] ?? '',
+      type: MessageType.values.firstWhere(
+        (e) => e.toString() == 'MessageType.${data['type']}',
+        orElse: () => MessageType.text,
+      ),
+      timestamp: (data['timestamp'] as Timestamp).toDate(),
+      isRead: data['isRead'] ?? false,
+      status: MessageStatus.values.firstWhere(
+        (e) => e.toString() == 'MessageStatus.${data['status']}',
+        orElse: () => MessageStatus.sent,
+      ),
+      metadata: data['metadata'],
+    );
+  }
+
+  // Converter ChatMessage para Firestore
+  Map<String, dynamic> _messageToFirestore(ChatMessage message) {
+    return {
+      'conversationId': message.conversationId,
+      'senderId': message.senderId,
+      'senderName': message.senderName,
+      'content': message.content,
+      'type': message.type.toString().split('.').last,
+      'timestamp': Timestamp.fromDate(message.timestamp),
+      'isRead': message.isRead,
+      'status': message.status.toString().split('.').last,
+      'metadata': message.metadata,
+    };
+  }
+
+  // Criar nova conversa
+  Future<String> createConversation({
+    required String title,
+    required ConversationType type,
+    required List<String> participantIds,
+    String? rideId,
+    Map<String, dynamic>? metadata,
   }) async {
+    final now = DateTime.now();
     final conversation = ChatConversation(
       id: '',
-      rideId: rideId,
-      participants: [
-        ChatParticipant(
-          userId: driverId,
-          name: driverName,
-          role: ParticipantRole.driver,
-          isOnline: true,
-        ),
-        ChatParticipant(
-          userId: passengerId,
-          name: passengerName,
-          role: ParticipantRole.passenger,
-          isOnline: true,
-        ),
-      ],
+      title: title,
+      type: type,
       status: ConversationStatus.active,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      unreadCount: {driverId: 0, passengerId: 0},
+      participantIds: participantIds,
+      rideId: rideId,
+      createdAt: now,
+      updatedAt: now,
+      metadata: metadata,
     );
 
-    final docRef = await _conversations.add(conversation);
-    return conversation.copyWith(id: docRef.id);
+    final docRef = await _conversationsRef.add(_conversationToFirestore(conversation));
+    return docRef.id;
   }
 
-  Future<ChatConversation?> getConversationByRideId(String rideId) async {
-    final querySnapshot = await _conversations
-        .where('rideId', isEqualTo: rideId)
-        .limit(1)
-        .get();
-
-    if (querySnapshot.docs.isEmpty) return null;
-    return querySnapshot.docs.first.data();
-  }
-
+  // Obter conversas do usuário
   Stream<List<ChatConversation>> getUserConversations(String userId) {
-    return _conversations
-        .where('participants', arrayContains: {'userId': userId})
+    return _conversationsRef
+        .where('participantIds', arrayContains: userId)
         .orderBy('updatedAt', descending: true)
         .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) => doc.data()).toList());
+        .map((snapshot) => snapshot.docs
+            .map((doc) => _conversationFromFirestore(doc))
+            .toList());
   }
 
-  Future<ChatMessage> sendMessage({
+  // Obter conversa específica
+  Future<ChatConversation?> getConversation(String conversationId) async {
+    final doc = await _conversationsRef.doc(conversationId).get();
+    if (doc.exists) {
+      return _conversationFromFirestore(doc);
+    }
+    return null;
+  }
+
+  // Enviar mensagem
+  Future<String> sendMessage({
     required String conversationId,
     required String senderId,
     required String senderName,
     required String content,
-    MessageType type = MessageType.text,
+    required MessageType type,
+    Map<String, dynamic>? metadata,
   }) async {
     final message = ChatMessage(
       id: '',
@@ -87,126 +156,68 @@ class ChatService {
       senderName: senderName,
       content: content,
       type: type,
-      status: MessageStatus.sent,
-      createdAt: DateTime.now(),
+      timestamp: DateTime.now(),
+      metadata: metadata,
     );
 
-    final docRef = await _messages.add(message);
-    final savedMessage = message.copyWith(id: docRef.id);
+    final docRef = await _messagesRef(conversationId).add(_messageToFirestore(message));
 
-    await _updateConversationLastMessage(conversationId, savedMessage);
+    // Atualizar última mensagem na conversa
+    await _conversationsRef.doc(conversationId).update({
+      'lastMessageId': docRef.id,
+      'lastMessageAt': Timestamp.fromDate(message.timestamp),
+      'updatedAt': Timestamp.fromDate(message.timestamp),
+    });
 
-    return savedMessage;
+    return docRef.id;
   }
 
-  Stream<List<ChatMessage>> getMessages(String conversationId) {
-    return _messages
-        .where('conversationId', isEqualTo: conversationId)
-        .orderBy('createdAt', descending: false)
+  // Obter mensagens da conversa
+  Stream<List<ChatMessage>> getConversationMessages(String conversationId) {
+    return _messagesRef(conversationId)
+        .orderBy('timestamp', descending: true)
         .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) => doc.data()).toList());
+        .map((snapshot) => snapshot.docs
+            .map((doc) => _messageFromFirestore(doc))
+            .toList());
   }
 
-  Future<void> markMessageAsRead(String messageId, String userId) async {
-    await _messages.doc(messageId).update({
-      'readAt': Timestamp.now(),
-      'status': MessageStatus.read.name,
-    });
-  }
-
-  Future<void> markConversationAsRead(String conversationId, String userId) async {
-    await _conversations.doc(conversationId).update({
-      'unreadCount.$userId': 0,
-    });
-
-    final messages = await _messages
-        .where('conversationId', isEqualTo: conversationId)
+  // Marcar mensagens como lidas
+  Future<void> markMessagesAsRead(String conversationId, String userId) async {
+    final batch = _firestore.batch();
+    final messages = await _messagesRef(conversationId)
         .where('senderId', isNotEqualTo: userId)
-        .where('status', whereIn: [MessageStatus.sent.name, MessageStatus.delivered.name])
+        .where('isRead', isEqualTo: false)
         .get();
 
-    final batch = _firestore.batch();
     for (final doc in messages.docs) {
-      batch.update(doc.reference, {
-        'readAt': Timestamp.now(),
-        'status': MessageStatus.read.name,
-      });
+      batch.update(doc.reference, {'isRead': true});
     }
+
     await batch.commit();
   }
 
-  Future<void> updateParticipantOnlineStatus(String userId, bool isOnline) async {
-    final conversations = await _conversations
-        .where('participants', arrayContains: {'userId': userId})
-        .get();
-
-    final batch = _firestore.batch();
-    for (final doc in conversations.docs) {
-      final conversation = doc.data();
-      final updatedParticipants = conversation.participants.map((p) {
-        if (p.userId == userId) {
-          return p.copyWith(
-            isOnline: isOnline,
-            lastSeenAt: isOnline ? null : DateTime.now(),
-          );
-        }
-        return p;
-      }).toList();
-
-      batch.update(doc.reference, {
-        'participants': updatedParticipants.map((p) => p.toJson()).toList(),
-      });
-    }
-    await batch.commit();
-  }
-
-  Future<void> _updateConversationLastMessage(String conversationId, ChatMessage message) async {
-    await _conversations.doc(conversationId).update({
-      'lastMessageId': message.id,
-      'lastMessageContent': message.content,
-      'lastMessageAt': Timestamp.fromDate(message.createdAt),
-      'lastMessageSenderId': message.senderId,
-      'updatedAt': Timestamp.now(),
+  // Arquivar conversa
+  Future<void> archiveConversation(String conversationId) async {
+    await _conversationsRef.doc(conversationId).update({
+      'status': ConversationStatus.archived.toString().split('.').last,
+      'updatedAt': Timestamp.fromDate(DateTime.now()),
     });
-
-    final conversationDoc = await _conversations.doc(conversationId).get();
-    if (conversationDoc.exists) {
-      final conversation = conversationDoc.data()!;
-      final updatedUnreadCount = Map<String, int>.from(conversation.unreadCount);
-      
-      for (final participant in conversation.participants) {
-        if (participant.userId != message.senderId) {
-          updatedUnreadCount[participant.userId] = 
-              (updatedUnreadCount[participant.userId] ?? 0) + 1;
-        }
-      }
-
-      await _conversations.doc(conversationId).update({
-        'unreadCount': updatedUnreadCount,
-      });
-    }
   }
 
+  // Deletar conversa
   Future<void> deleteConversation(String conversationId) async {
+    // Deletar todas as mensagens
+    final messages = await _messagesRef(conversationId).get();
     final batch = _firestore.batch();
-    
-    batch.delete(_conversations.doc(conversationId));
-    
-    final messages = await _messages
-        .where('conversationId', isEqualTo: conversationId)
-        .get();
     
     for (final doc in messages.docs) {
       batch.delete(doc.reference);
     }
     
+    // Deletar a conversa
+    batch.delete(_conversationsRef.doc(conversationId));
+    
     await batch.commit();
-  }
-
-  Future<void> updateConversationStatus(String conversationId, ConversationStatus status) async {
-    await _conversations.doc(conversationId).update({
-      'status': status.name,
-      'updatedAt': Timestamp.now(),
-    });
   }
 }

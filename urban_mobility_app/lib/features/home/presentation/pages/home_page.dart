@@ -773,11 +773,6 @@ class _HomePageState extends State<HomePage> {
 }
 
 class _SearchFieldCard extends StatelessWidget {
-  final String hintText;
-  final Widget prefixIcon;
-  final Widget? suffixIcon;
-  final VoidCallback? onTap;
-  final bool readOnly;
 
   const _SearchFieldCard({
     required this.hintText,
@@ -786,6 +781,11 @@ class _SearchFieldCard extends StatelessWidget {
     this.onTap,
     this.readOnly = true,
   });
+  final String hintText;
+  final Widget prefixIcon;
+  final Widget? suffixIcon;
+  final VoidCallback? onTap;
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {

@@ -1,10 +1,6 @@
 import 'package:flutter/material.dart';
 
 class ChatInput extends StatelessWidget {
-  final TextEditingController controller;
-  final Function(String) onSendMessage;
-  final VoidCallback? onSendLocation;
-  final bool enabled;
 
   const ChatInput({
     super.key,
@@ -13,6 +9,10 @@ class ChatInput extends StatelessWidget {
     this.onSendLocation,
     this.enabled = true,
   });
+  final TextEditingController controller;
+  final Function(String) onSendMessage;
+  final VoidCallback? onSendLocation;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +37,7 @@ class ChatInput extends StatelessWidget {
                 icon: const Icon(Icons.location_on_outlined),
                 tooltip: 'Enviar localização',
                 style: IconButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+                  backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                   foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
@@ -47,7 +47,7 @@ class ChatInput extends StatelessWidget {
               child: Container(
                 constraints: const BoxConstraints(maxHeight: 120),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceVariant,
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(24),
                 ),
                 child: TextField(
@@ -94,11 +94,11 @@ class ChatInput extends StatelessWidget {
                     style: IconButton.styleFrom(
                       backgroundColor: hasText 
                           ? Theme.of(context).primaryColor
-                          : Theme.of(context).colorScheme.surfaceVariant,
+                          : Theme.of(context).colorScheme.surfaceContainerHighest,
                       foregroundColor: hasText 
                           ? Colors.white
                           : Theme.of(context).colorScheme.onSurfaceVariant,
-                      disabledBackgroundColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+                      disabledBackgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
                       disabledForegroundColor: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.5),
                     ),
                   ),

@@ -4,13 +4,6 @@ import 'package:go_router/go_router.dart';
 import '../providers/chat_list_provider.dart';
 
 class StartChatButton extends StatelessWidget {
-  final String rideId;
-  final String driverId;
-  final String driverName;
-  final String passengerId;
-  final String passengerName;
-  final String buttonText;
-  final IconData? icon;
 
   const StartChatButton({
     super.key,
@@ -22,6 +15,13 @@ class StartChatButton extends StatelessWidget {
     this.buttonText = 'Iniciar conversa',
     this.icon,
   });
+  final String rideId;
+  final String driverId;
+  final String driverName;
+  final String passengerId;
+  final String passengerName;
+  final String buttonText;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -73,12 +73,6 @@ class StartChatButton extends StatelessWidget {
 }
 
 class ContactDriverCard extends StatelessWidget {
-  final String driverId;
-  final String driverName;
-  final String? driverPhone;
-  final String rideId;
-  final String passengerId;
-  final String passengerName;
 
   const ContactDriverCard({
     super.key,
@@ -89,6 +83,12 @@ class ContactDriverCard extends StatelessWidget {
     required this.passengerId,
     required this.passengerName,
   });
+  final String driverId;
+  final String driverName;
+  final String? driverPhone;
+  final String rideId;
+  final String passengerId;
+  final String passengerName;
 
   @override
   Widget build(BuildContext context) {

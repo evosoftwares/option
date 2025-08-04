@@ -1,0 +1,887 @@
+<task>
+
+import 'package:flutter/material.dart';
+import 'dart:async'; // Para o Timer do debounce
+
+// PLANO 1: Adicionar as dependências necessárias no pubspec.yaml
+// dependencies:
+//   flutter:
+//     sdk: flutter
+//   google_maps_flutter: ^2.1.8  // Para o mapa interativo
+//   geocoding: ^2.0.4           // Para converter coordenadas em endereço
+//   permission_handler: ^10.0.0 // Para solicitar permissão de localização
+//   geolocator: ^9.0.2         // Para obter localização atual do usuário
+//   shimmer: ^3.0.0            // Para efeito de loading no endereço
+
+// PLANO 1.1: Configuração específica por plataforma
+// Android: 
+// - Adicionar API key no android/app/src/main/AndroidManifest.xml
+// - Adicionar permissões de localização
+// iOS:
+// - Adicionar API key no ios/Runner/AppDelegate.swift
+// - Configurar permissões no Info.plist
+
+void main() {
+  runApp(const TransportApp());
+}
+
+class TransportApp extends StatelessWidget {
+  const TransportApp({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Confirm Pickup Layout',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        fontFamily: 'Inter',
+      ),
+      home: const ConfirmPickupScreen(),
+      debugShowCheckedModeBanner: false,
+    );
+  }
+}
+
+// PLANO 2: Estrutura de dados para gerenciar localização
+class LocationData {
+  final double latitude;
+  final double longitude;
+  final String address;
+  final String? complement;
+  final String? neighborhood;
+  final String? city;
+  final String? state;
+
+  LocationData({
+    required this.latitude,
+    required this.longitude,
+    required this.address,
+    this.complement,
+    this.neighborhood,
+    this.city,
+    this.state,
+  });
+
+  // Método factory para criar a partir da resposta da geocodificação
+  factory LocationData.fromPlacemark(
+    double lat,
+    double lng,
+    // Placemark placemark, // Descomentar quando usar geocoding
+  ) {
+    // Implementação real seria:
+    // return LocationData(
+    //   latitude: lat,
+    //   longitude: lng,
+    //   address: '${placemark.street}, ${placemark.name}',
+    //   neighborhood: placemark.subLocality,
+    //   city: placemark.locality,
+    //   state: placemark.administrativeArea,
+    // );
+    
+    // Placeholder:
+    return LocationData(
+      latitude: lat,
+      longitude: lng,
+      address: 'Rua Exemplo, 123',
+      neighborhood: 'Centro',
+      city: 'São Bernardo do Campo',
+      state: 'SP',
+    );
+  }
+
+  String get fullAddress {
+    final parts = [address];
+    if (neighborhood != null) parts.add(neighborhood!);
+    if (city != null && state != null) parts.add('$city - $state');
+    return parts.join(', ');
+  }
+}
+
+// PLANO 3: StatefulWidget com gerenciamento de estado completo
+class ConfirmPickupScreen extends StatefulWidget {
+  const ConfirmPickupScreen({Key? key}) : super(key: key);
+
+  @override
+  State<ConfirmPickupScreen> createState() => _ConfirmPickupScreenState();
+}
+
+class _ConfirmPickupScreenState extends State<ConfirmPickupScreen> 
+    with SingleTickerProviderStateMixin {
+  // PLANO 3.1: Controladores e variáveis de estado
+  // late GoogleMapController _mapController;
+  
+  // Estado da localização
+  LocationData? _currentLocation;
+  String _currentAddress = "Obtendo localização...";
+  bool _isLoadingAddress = false;
+  bool _isMapMoving = false;
+  
+  // Controle de debounce para performance
+  Timer? _debounce;
+  
+  // Animação do pin
+  late AnimationController _pinAnimationController;
+  late Animation<double> _pinAnimation;
+  
+  // PLANO 3.2: Posição inicial (São Bernardo do Campo)
+  static const double _initialLat = -23.682160;
+  static const double _initialLng = -46.565360;
+  static const double _defaultZoom = 16.0;
+  
+  // static const _initialCameraPosition = CameraPosition(
+  //   target: LatLng(_initialLat, _initialLng),
+  //   zoom: _defaultZoom,
+  // );
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // PLANO 3.3: Inicializar animação do pin
+    _pinAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _pinAnimation = Tween<double>(
+      begin: 0.0,
+      end: 10.0,
+    ).animate(CurvedAnimation(
+      parent: _pinAnimationController,
+      curve: Curves.easeInOut,
+    ));
+    
+    // PLANO 3.4: Verificar permissões e obter localização inicial
+    _initializeLocation();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _pinAnimationController.dispose();
+    super.dispose();
+  }
+
+  // PLANO 4: Inicialização com tratamento de permissões
+  Future<void> _initializeLocation() async {
+    setState(() => _isLoadingAddress = true);
+    
+    try {
+      // PLANO 4.1: Verificar e solicitar permissões
+      // final permission = await Permission.location.request();
+      // if (permission.isGranted) {
+      //   final position = await Geolocator.getCurrentPosition();
+      //   _mapController.animateCamera(
+      //     CameraUpdate.newLatLng(LatLng(position.latitude, position.longitude)),
+      //   );
+      //   await _updateAddressFromCoordinates(position.latitude, position.longitude);
+      // } else {
+      //   // Usar localização padrão se permissão negada
+      //   await _updateAddressFromCoordinates(_initialLat, _initialLng);
+      // }
+      
+      // Simulação temporária
+      await Future.delayed(const Duration(seconds: 1));
+      _currentLocation = LocationData(
+        latitude: _initialLat,
+        longitude: _initialLng,
+        address: 'Av. Aldino Pinotti, 520',
+        neighborhood: 'Centro',
+        city: 'São Bernardo do Campo',
+        state: 'SP',
+      );
+      setState(() {
+        _currentAddress = _currentLocation!.address;
+        _isLoadingAddress = false;
+      });
+    } catch (e) {
+      setState(() {
+        _currentAddress = "Erro ao obter localização";
+        _isLoadingAddress = false;
+      });
+      _showErrorSnackBar('Não foi possível obter sua localização');
+    }
+  }
+
+  // PLANO 5: Geocodificação reversa com debounce
+  void _onCameraMove() {
+    if (!_isMapMoving) {
+      setState(() => _isMapMoving = true);
+      _pinAnimationController.forward();
+    }
+    
+    // Cancelar debounce anterior
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    
+    // Configurar novo debounce
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      _onCameraIdle();
+    });
+  }
+
+  Future<void> _onCameraIdle() async {
+    setState(() => _isMapMoving = false);
+    _pinAnimationController.reverse();
+    
+    // PLANO 5.1: Obter posição central do mapa
+    // final LatLng center = await _mapController.getLatLng(
+    //   ScreenCoordinate(
+    //     x: MediaQuery.of(context).size.width ~/ 2,
+    //     y: MediaQuery.of(context).size.height ~/ 2,
+    //   ),
+    // );
+    
+    // await _updateAddressFromCoordinates(center.latitude, center.longitude);
+    
+    // Simulação temporária
+    setState(() => _isLoadingAddress = true);
+    await Future.delayed(const Duration(milliseconds: 800));
+    setState(() {
+      _currentAddress = "Endereço atualizado via mapa";
+      _isLoadingAddress = false;
+    });
+  }
+
+  // PLANO 6: Atualização de endereço com tratamento de erros
+  Future<void> _updateAddressFromCoordinates(double lat, double lng) async {
+    setState(() {
+      _isLoadingAddress = true;
+      _currentAddress = "Obtendo endereço...";
+    });
+    
+    try {
+      // PLANO 6.1: Usar geocoding para obter endereço
+      // final placemarks = await placemarkFromCoordinates(lat, lng);
+      // if (placemarks.isNotEmpty) {
+      //   final placemark = placemarks.first;
+      //   _currentLocation = LocationData.fromPlacemark(lat, lng, placemark);
+      //   setState(() {
+      //     _currentAddress = _currentLocation!.address;
+      //     _isLoadingAddress = false;
+      //   });
+      // }
+      
+      // Simulação com timeout
+      await Future.delayed(const Duration(seconds: 1));
+      throw Exception('Simulated error');
+    } catch (e) {
+      setState(() {
+        _currentAddress = "Endereço não encontrado";
+        _isLoadingAddress = false;
+      });
+      
+      // Tentar novamente após 2 segundos
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) _updateAddressFromCoordinates(lat, lng);
+      });
+    }
+  }
+
+  // PLANO 7: Navegação para tela de busca
+  Future<void> _navigateToSearchScreen() async {
+    // final LocationData? result = await Navigator.push(
+    //   context,
+    //   MaterialPageRoute(
+    //     builder: (context) => const AddressSearchScreen(),
+    //   ),
+    // );
+    
+    // if (result != null) {
+    //   setState(() {
+    //     _currentLocation = result;
+    //     _currentAddress = result.address;
+    //   });
+    //   
+    //   // Mover o mapa para a nova localização
+    //   _mapController.animateCamera(
+    //     CameraUpdate.newLatLngZoom(
+    //       LatLng(result.latitude, result.longitude),
+    //       _defaultZoom,
+    //     ),
+    //   );
+    // }
+    
+    // Placeholder
+    _showSnackBar('Tela de busca será implementada');
+  }
+
+  // PLANO 8: Confirmar embarque
+  void _confirmPickup() {
+    if (_currentLocation == null) {
+      _showErrorSnackBar('Por favor, aguarde a localização ser carregada');
+      return;
+    }
+    
+    // PLANO 8.1: Navegar para escolha de motorista
+    // Navigator.push(
+    //   context,
+    //   MaterialPageRoute(
+    //     builder: (context) => DriverSelectionScreen(
+    //       pickupLocation: _currentLocation!,
+    //     ),
+    //   ),
+    // );
+    
+    _showSnackBar('Local confirmado: ${_currentLocation!.fullAddress}');
+  }
+
+  // Métodos auxiliares para feedback
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red[600],
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          // PLANO 9: Mapa interativo com todos os callbacks
+          /*
+          GoogleMap(
+            initialCameraPosition: _initialCameraPosition,
+            onMapCreated: (controller) {
+              _mapController = controller;
+              // Aplicar estilo customizado se necessário
+              // _mapController.setMapStyle(_mapStyle);
+            },
+            onCameraMove: (_) => _onCameraMove(),
+            onCameraIdle: () => _onCameraIdle(),
+            myLocationEnabled: true,
+            myLocationButtonEnabled: false,
+            zoomControlsEnabled: false,
+            mapToolbarEnabled: false,
+            // Marcadores adicionais se necessário
+            markers: {},
+          ),
+          */
+          
+          // Placeholder do mapa
+          Positioned.fill(
+            child: Image.network(
+              'https://images.unsplash.com/photo-1549887552-cb1effb8735b?q=80&w=1974&auto=format&fit=crop',
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  color: Colors.grey[300],
+                  child: const Center(
+                    child: Text('Mapa Indisponível'),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // Pin centralizado com animação
+          Align(
+            alignment: Alignment.center,
+            child: AnimatedBuilder(
+              animation: _pinAnimation,
+              builder: (context, child) {
+                return Transform.translate(
+                  offset: Offset(0, -_pinAnimation.value),
+                  child: _buildLocationPin(),
+                );
+              },
+            ),
+          ),
+
+          // Botão de localização atual
+          Positioned(
+            right: 16,
+            bottom: 280,
+            child: _buildMyLocationButton(),
+          ),
+
+          // Painel inferior
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: _buildBottomPanel(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLocationPin() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Sombra do pin com blur animado
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          width: _isMapMoving ? 20 : 16,
+          height: 4,
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(_isMapMoving ? 0.2 : 0.3),
+            borderRadius: BorderRadius.circular(2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: _isMapMoving ? 8 : 4,
+                offset: const Offset(0, 2),
+              )
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        Icon(
+          Icons.location_pin,
+          color: _isMapMoving ? Colors.red : Colors.black,
+          size: 52,
+          shadows: const [Shadow(color: Colors.black26, blurRadius: 8)],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMyLocationButton() {
+    return Material(
+      elevation: 4,
+      borderRadius: BorderRadius.circular(28),
+      child: InkWell(
+        onTap: _initializeLocation,
+        borderRadius: BorderRadius.circular(28),
+        child: Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: const Icon(
+            Icons.my_location,
+            color: Colors.black87,
+            size: 24,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomPanel() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16.0),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(20.0),
+          topRight: Radius.circular(20.0),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black26,
+            blurRadius: 20.0,
+            offset: Offset(0, -5),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle visual do painel
+          Container(
+            width: 40,
+            height: 4,
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          
+          const Text(
+            'Confirme seu local de embarque',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _isMapMoving 
+              ? 'Solte para selecionar este local'
+              : 'Mova o pino no mapa para ajustar',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14, 
+              color: _isMapMoving ? Colors.blue[700] : Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Campo de endereço clicável com feedback visual
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _navigateToSearchScreen,
+              borderRadius: BorderRadius.circular(8),
+              child: _buildAddressDisplay(),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Botão de confirmação
+          ElevatedButton(
+            onPressed: _isLoadingAddress ? null : _confirmPickup,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+              disabledBackgroundColor: Colors.grey[400],
+              minimumSize: const Size(double.infinity, 56),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8.0),
+              ),
+              elevation: _isLoadingAddress ? 0 : 2,
+              textStyle: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Inter',
+              ),
+            ),
+            child: _isLoadingAddress
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2,
+                  ),
+                )
+              : const Text('Confirmar embarque'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAddressDisplay() {
+    return Container(
+      padding: const EdgeInsets.all(12.0),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(8.0),
+        border: Border.all(
+          color: _isLoadingAddress ? Colors.blue.withOpacity(0.5) : Colors.transparent,
+          width: 2,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            _isLoadingAddress ? Icons.location_searching : Icons.location_on,
+            color: _isLoadingAddress ? Colors.blue : Colors.grey[800],
+            size: 24,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Endereço principal com efeito de loading
+                if (_isLoadingAddress)
+                  Container(
+                    height: 20,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const LinearProgressIndicator(
+                      backgroundColor: Colors.transparent,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white24),
+                    ),
+                  )
+                else
+                  Text(
+                    _currentAddress,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                const SizedBox(height: 4),
+                // Localização complementar
+                Text(
+                  _currentLocation != null && !_isLoadingAddress
+                    ? '${_currentLocation!.neighborhood ?? "Centro"}, ${_currentLocation!.city ?? "São Bernardo do Campo"} - ${_currentLocation!.state ?? "SP"}'
+                    : 'Toque para buscar endereço',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: _isLoadingAddress ? Colors.grey[400] : Colors.black54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Ícone de ação
+          Icon(
+            Icons.search,
+            color: Colors.grey[600],
+            size: 20,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// PLANO 10: Tela de busca de endereço (placeholder para implementação futura)
+class AddressSearchScreen extends StatelessWidget {
+  const AddressSearchScreen({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Buscar endereço'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 1,
+      ),
+      body: const Center(
+        child: Text('Implementar busca de endereço'),
+      ),
+    );
+  }
+}
+</task>
+
+<environment_details>
+# VSCode Visible Files
+
+
+# VSCode Open Tabs
+urban_mobility_app/lib/features/chat/presentation/widgets/message_bubble.dart,urban_mobility_app/lib/features/chat/presentation/pages/chat_page.dart,urban_mobility_app/lib/features/chat/presentation/providers/chat_list_provider.dart,urban_mobility_app/lib/features/chat/presentation/providers/chat_provider.dart,urban_mobility_app/lib/features/chat/data/services/chat_service.dart,urban_mobility_app/lib/features/chat/data/repositories/chat_repository_impl.dart,urban_mobility_app/lib/features/chat/domain/repositories/chat_repository.dart,urban_mobility_app/lib/features/chat/domain/models/chat_conversation.dart,urban_mobility_app/lib/features/chat/domain/models/chat_message.dart,urban_mobility_app/lib/features/chat/presentation/widgets/conversation_tile.dart,urban_mobility_app/lib/shared/widgets/place_picker_field.dart,urban_mobility_app/test/unit/location_tracking/hybrid_location_repository_test.dart,urban_mobility_app/lib/core/data/repositories/supabase_location_repository.dart,run_android.sh,.circleci/README_CIRCLECI_HYBRID.md,.circleci/scripts/test_hybrid_location.sh,.circleci/flutter-test-config.yml,urban_mobility_app/lib/features/location_tracking/data/repositories/README_HYBRID.md,urban_mobility_app/lib/features/location_tracking/presentation/pages/hybrid_location_example.dart,urban_mobility_app/lib/features/location_tracking/data/repositories/hybrid_location_tracking_provider.dart
+
+# Current Time
+Current time in ISO 8601 UTC format: 2025-08-04T18:09:21.476Z
+User time zone: America/Sao_Paulo, UTC-3:00
+
+# Current Cost
+$0.00
+
+# Current Mode
+<slug>orchestrator</slug>
+<name>🪃 Orchestrator</name>
+<model>qwen/qwen3-coder:free</model>
+
+
+# Current Workspace Directory (/Users/evosoftwares/option) Files
+.DS_Store
+BackgroundLocation_Plan.txt
+featureRealtime.txt
+quick_run.sh
+README_SCRIPTS.md
+run_android.sh
+start.sh
+.circleci/
+.claude/
+urban_mobility_app/
+urban_mobility_app/.gitignore
+urban_mobility_app/.metadata
+urban_mobility_app/analysis_options.yaml
+urban_mobility_app/.dart_tool/
+urban_mobility_app/.idea/
+urban_mobility_app/android/
+urban_mobility_app/android/.gitignore
+urban_mobility_app/android/.gradle/
+urban_mobility_app/android/.kotlin/
+urban_mobility_app/android/app/
+urban_mobility_app/android/app/build.gradle.kts
+urban_mobility_app/android/app/proguard-rules.pro
+urban_mobility_app/android/app/src/
+urban_mobility_app/android/app/src/debug/
+urban_mobility_app/android/app/src/debug/AndroidManifest.xml
+urban_mobility_app/android/app/src/main/
+urban_mobility_app/android/app/src/main/AndroidManifest.xml
+urban_mobility_app/android/app/src/main/java/
+urban_mobility_app/android/app/src/main/java/io/
+urban_mobility_app/android/app/src/main/java/io/flutter/
+urban_mobility_app/android/app/src/main/java/io/flutter/plugins/
+urban_mobility_app/android/app/src/main/kotlin/
+urban_mobility_app/android/app/src/main/kotlin/com/
+urban_mobility_app/android/app/src/main/kotlin/com/evo/
+urban_mobility_app/android/app/src/main/kotlin/com/evo/opt2/
+urban_mobility_app/android/app/src/main/kotlin/com/evo/opt2/MainActivity.kt
+urban_mobility_app/android/app/src/main/kotlin/com/urbanmobility/
+urban_mobility_app/android/app/src/main/kotlin/com/urbanmobility/urban_mobility_app/
+urban_mobility_app/android/app/src/main/res/
+urban_mobility_app/android/app/src/main/res/drawable/
+urban_mobility_app/android/app/src/main/res/drawable/launch_background.xml
+urban_mobility_app/android/app/src/main/res/drawable-v21/
+urban_mobility_app/android/app/src/main/res/drawable-v21/launch_background.xml
+urban_mobility_app/android/app/src/main/res/mipmap-hdpi/
+urban_mobility_app/android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+urban_mobility_app/android/app/src/main/res/mipmap-mdpi/
+urban_mobility_app/android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+urban_mobility_app/android/app/src/main/res/mipmap-xhdpi/
+urban_mobility_app/android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+urban_mobility_app/android/app/src/main/res/mipmap-xxhdpi/
+urban_mobility_app/android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+urban_mobility_app/android/app/src/main/res/mipmap-xxxhdpi/
+urban_mobility_app/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+urban_mobility_app/android/app/src/main/res/values/
+urban_mobility_app/android/app/src/main/res/values/styles.xml
+urban_mobility_app/android/app/src/main/res/values-night/
+urban_mobility_app/android/app/src/main/res/values-night/styles.xml
+urban_mobility_app/android/app/src/profile/
+urban_mobility_app/android/app/src/profile/AndroidManifest.xml
+urban_mobility_app/android/gradle/
+urban_mobility_app/android/gradle/wrapper/
+urban_mobility_app/ios/
+urban_mobility_app/ios/Flutter/
+urban_mobility_app/ios/Flutter/ephemeral/
+urban_mobility_app/ios/Runner/
+urban_mobility_app/ios/Runner/Assets.xcassets/
+urban_mobility_app/ios/Runner/Assets.xcassets/AppIcon.appiconset/
+urban_mobility_app/ios/Runner/Assets.xcassets/LaunchImage.imageset/
+urban_mobility_app/ios/Runner/Base.lproj/
+urban_mobility_app/ios/Runner.xcodeproj/
+urban_mobility_app/ios/Runner.xcodeproj/project.xcworkspace/
+urban_mobility_app/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/
+urban_mobility_app/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+urban_mobility_app/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/configuration/
+urban_mobility_app/ios/Runner.xcodeproj/xcshareddata/
+urban_mobility_app/ios/Runner.xcodeproj/xcshareddata/xcschemes/
+urban_mobility_app/ios/Runner.xcworkspace/
+urban_mobility_app/ios/Runner.xcworkspace/xcshareddata/
+urban_mobility_app/ios/Runner.xcworkspace/xcshareddata/swiftpm/
+urban_mobility_app/ios/Runner.xcworkspace/xcshareddata/swiftpm/configuration/
+urban_mobility_app/ios/RunnerTests/
+urban_mobility_app/lib/
+urban_mobility_app/lib/core/
+urban_mobility_app/lib/core/config/
+urban_mobility_app/lib/core/constants/
+urban_mobility_app/lib/core/data/
+urban_mobility_app/lib/core/data/models/
+urban_mobility_app/lib/core/data/repositories/
+urban_mobility_app/lib/core/di/
+urban_mobility_app/lib/core/firebase/
+urban_mobility_app/lib/core/network/
+urban_mobility_app/lib/core/services/
+urban_mobility_app/lib/core/storage/
+urban_mobility_app/lib/core/theme/
+urban_mobility_app/lib/core/utils/
+urban_mobility_app/lib/features/
+urban_mobility_app/lib/features/auth/
+urban_mobility_app/lib/features/auth/data/
+urban_mobility_app/lib/features/auth/domain/
+urban_mobility_app/lib/features/auth/presentation/
+urban_mobility_app/lib/features/chat/
+urban_mobility_app/lib/features/chat/data/
+urban_mobility_app/lib/features/chat/data/models/
+urban_mobility_app/lib/features/chat/data/repositories/
+urban_mobility_app/lib/features/chat/data/services/
+urban_mobility_app/lib/features/chat/domain/
+urban_mobility_app/lib/features/chat/domain/models/
+urban_mobility_app/lib/features/chat/domain/repositories/
+urban_mobility_app/lib/features/chat/presentation/
+urban_mobility_app/lib/features/chat/presentation/pages/
+urban_mobility_app/lib/features/chat/presentation/providers/
+urban_mobility_app/lib/features/chat/presentation/widgets/
+urban_mobility_app/lib/features/home/
+urban_mobility_app/lib/features/home/data/
+urban_mobility_app/lib/features/home/domain/
+urban_mobility_app/lib/features/home/presentation/
+urban_mobility_app/lib/features/home/presentation/pages/
+urban_mobility_app/lib/features/home/presentation/widgets/
+urban_mobility_app/lib/features/location_tracking/
+urban_mobility_app/lib/features/location_tracking/data/
+urban_mobility_app/lib/features/location_tracking/data/data_sources/
+urban_mobility_app/lib/features/location_tracking/data/models/
+urban_mobility_app/lib/features/location_tracking/data/repositories/
+urban_mobility_app/lib/features/location_tracking/data/services/
+urban_mobility_app/lib/features/location_tracking/di/
+urban_mobility_app/lib/features/location_tracking/domain/
+urban_mobility_app/lib/features/location_tracking/domain/entities/
+urban_mobility_app/lib/features/location_tracking/domain/repositories/
+urban_mobility_app/lib/features/location_tracking/domain/use_cases/
+urban_mobility_app/lib/features/location_tracking/presentation/
+urban_mobility_app/lib/features/location_tracking/presentation/pages/
+urban_mobility_app/lib/features/location_tracking/presentation/providers/
+urban_mobility_app/lib/features/location_tracking/presentation/screens/
+urban_mobility_app/lib/features/location_tracking/presentation/widgets/
+urban_mobility_app/lib/features/location_tracking/services/
+urban_mobility_app/lib/features/map/
+urban_mobility_app/lib/features/map/data/
+urban_mobility_app/lib/features/map/domain/
+urban_mobility_app/lib/features/map/presentation/
+urban_mobility_app/lib/features/map/presentation/pages/
+urban_mobility_app/lib/features/passenger/
+urban_mobility_app/lib/features/passenger/presentation/
+urban_mobility_app/lib/features/passenger/presentation/pages/
+urban_mobility_app/lib/features/profile/
+urban_mobility_app/lib/features/profile/data/
+urban_mobility_app/lib/features/profile/data/models/
+urban_mobility_app/lib/features/profile/data/repositories/
+urban_mobility_app/lib/features/profile/data/services/
+urban_mobility_app/lib/features/profile/domain/
+urban_mobility_app/lib/features/profile/presentation/
+urban_mobility_app/lib/features/profile/presentation/pages/
+urban_mobility_app/lib/features/profile/presentation/providers/
+urban_mobility_app/lib/features/profile/presentation/widgets/
+urban_mobility_app/lib/features/rides/
+urban_mobility_app/lib/features/rides/presentation/
+urban_mobility_app/lib/features/rides/presentation/pages/
+urban_mobility_app/lib/features/transport/
+urban_mobility_app/lib/features/transport/data/
+urban_mobility_app/lib/features/transport/domain/
+urban_mobility_app/lib/features/transport/presentation/
+urban_mobility_app/lib/features/transport/presentation/pages/
+urban_mobility_app/lib/shared/
+urban_mobility_app/lib/shared/services/
+urban_mobility_app/lib/shared/widgets/
+urban_mobility_app/linux/
+urban_mobility_app/linux/flutter/
+urban_mobility_app/linux/flutter/ephemeral/
+urban_mobility_app/linux/flutter/ephemeral/.plugin_symlinks/
+urban_mobility_app/linux/runner/
+urban_mobility_app/macos/
+urban_mobility_app/macos/Flutter/
+urban_mobility_app/macos/Flutter/ephemeral/
+urban_mobility_app/macos/Runner/
+urban_mobility_app/macos/Runner/Assets.xcassets/
+urban_mobility_app/macos/Runner/Assets.xcassets/AppIcon.appiconset/
+urban_mobility_app/macos/Runner/Base.lproj/
+urban_mobility_app/macos/Runner/Configs/
+urban_mobility_app/macos/Runner.xcodeproj/
+urban_mobility_app/macos/Runner.xcodeproj/project.xcworkspace/
+urban_mobility_app/macos/Runner.xcodeproj/project.xcworkspace/xcshareddata/
+urban_mobility_app/macos/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+urban_mobility_app/macos/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/configuration/
+urban_mobility_app/macos/Runner.xcodeproj/xcshareddata/
+urban_mobility_app/macos/Runner.xcodeproj/xcshareddata/xcschemes/
+urban_mobility_app/macos/Runner.xcworkspace/
+urban_mobility_app/macos/Runner.xcworkspace/xcshareddata/
+urban_mobility_app/macos/Runner.xcworkspace/xcshareddata/swiftpm/
+urban_mobility_app/macos/Runner.xcworkspace/xcshareddata/swiftpm/configuration/
+urban_mobility_app/macos/RunnerTests/
+urban_mobility_app/test/
+urban_mobility_app/test/unit/
+urban_mobility_app/test/unit/location_tracking/
+urban_mobility_app/web/
+urban_mobility_app/web/icons/
+urban_mobility_app/windows/
+urban_mobility_app/windows/flutter/
+urban_mobility_app/windows/flutter/ephemeral/
+urban_mobility_app/windows/flutter/ephemeral/.plugin_symlinks/
+urban_mobility_app/windows/runner/
+urban_mobility_app/windows/runner/resources/
+
+(File list truncated. Use list_files on specific subdirectories if you need to explore further.)
+You have not created a todo list yet. Create one with `update_todo_list` if your task is complicated or involves multiple steps.
+</environment_details>

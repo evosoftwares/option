@@ -1,20 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../domain/models/chat_message.dart';
+import '../../domain/models/chat_conversation.dart';
 import '../providers/chat_provider.dart';
-import '../../data/models/chat_message.dart';
-import '../../data/models/chat_conversation.dart';
-import '../../data/models/chat_participant.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/chat_input.dart';
 import '../../../../shared/widgets/empty_state.dart';
 
 class ChatPage extends StatefulWidget {
-  final String conversationId;
 
   const ChatPage({
     super.key,
     required this.conversationId,
   });
+  final String conversationId;
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -146,34 +146,36 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     return Consumer<ChatProvider>(
       builder: (context, provider, child) {
         final conversation = provider.conversation;
-        final otherParticipant = conversation?.getOtherParticipant('current_user_id');
+        // final otherParticipant = conversation?.getOtherParticipant('current_user_id');
+        const otherParticipant = null; // Temporário
 
         return AppBar(
           backgroundColor: Theme.of(context).primaryColor,
           foregroundColor: Colors.white,
-          title: Row(
+          title: const Row(
             children: [
-              _buildParticipantAvatar(otherParticipant),
-              const SizedBox(width: 12),
+              // _buildParticipantAvatar(otherParticipant),
+              CircleAvatar(radius: 18, child: Icon(Icons.person)),
+              SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      otherParticipant?.name ?? 'Chat',
-                      style: const TextStyle(
+                      'Chat',
+                      style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    if (otherParticipant != null)
-                      Text(
-                        _getParticipantStatus(otherParticipant),
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.white70,
-                        ),
-                      ),
+                    // if (otherParticipant != null)
+                    //   Text(
+                    //     _getParticipantStatus(otherParticipant),
+                    //     style: const TextStyle(
+                    //       fontSize: 12,
+                    //       color: Colors.white70,
+                    //     ),
+                    //   ),
                   ],
                 ),
               ),

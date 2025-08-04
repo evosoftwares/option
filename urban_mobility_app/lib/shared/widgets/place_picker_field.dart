@@ -3,11 +3,6 @@ import 'package:geocoding/geocoding.dart';
 import '../services/location_service.dart';
 
 class PlacePickerField extends StatefulWidget {
-  final String hintText;
-  final Widget prefixIcon;
-  final Function(SelectedPlace) onPlaceSelected;
-  final String? initialValue;
-  final bool enabled;
 
   const PlacePickerField({
     super.key,
@@ -17,6 +12,11 @@ class PlacePickerField extends StatefulWidget {
     this.initialValue,
     this.enabled = true,
   });
+  final String hintText;
+  final Widget prefixIcon;
+  final Function(SelectedPlace) onPlaceSelected;
+  final String? initialValue;
+  final bool enabled;
 
   @override
   State<PlacePickerField> createState() => _PlacePickerFieldState();
@@ -250,11 +250,6 @@ class _PlacePickerFieldState extends State<PlacePickerField> {
 
 // Modelo para representar um lugar selecionado
 class SelectedPlace {
-  final String name;
-  final String address;
-  final double latitude;
-  final double longitude;
-  final String? placeId;
 
   const SelectedPlace({
     required this.name,
@@ -279,6 +274,11 @@ class SelectedPlace {
       placeId: placeId,
     );
   }
+  final String name;
+  final String address;
+  final double latitude;
+  final double longitude;
+  final String? placeId;
 
   @override
   String toString() {

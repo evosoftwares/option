@@ -1,22 +1,24 @@
 /* [App Entry] Ponto de entrada do app e configuração global de tema/rotas.
    Mantemos comentários curtos e seções nomeadas para leitura rápida. */
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/theme/app_theme.dart';
-import 'features/home/presentation/pages/home_page.dart';
+import 'features/passenger/presentation/pages/passenger_home_page.dart';
 // import 'features/map/presentation/pages/map_page.dart'; // [Removed] MapPage removida
 import 'features/rides/presentation/pages/rides_page.dart';
 import 'features/profile/presentation/pages/profile_page.dart';
 import 'features/location_tracking/presentation/screens/location_tracking_screen.dart';
-import 'features/location_tracking/di/location_tracking_dependencies.dart';
-import 'features/chat/presentation/pages/chat_list_page.dart';
-import 'features/chat/presentation/pages/chat_page.dart';
-import 'features/chat/presentation/providers/chat_provider.dart';
-import 'features/chat/presentation/providers/chat_list_provider.dart';
-import 'features/chat/data/services/chat_service.dart';
-import 'features/chat/data/repositories/chat_repository_impl.dart';
+import 'features/profile/presentation/pages/edit_profile_page.dart';
+import 'features/transport/presentation/pages/transport_example_page.dart';
+import 'features/transport/presentation/pages/confirm_pickup_screen.dart';
+// import 'features/chat/presentation/pages/chat_list_page.dart';
+// import 'features/chat/presentation/pages/chat_page.dart';
+// import 'features/chat/presentation/providers/chat_provider.dart';
+// import 'features/chat/presentation/providers/chat_list_provider.dart';
+// import 'features/chat/data/services/chat_service.dart';
+// import 'features/chat/data/repositories/chat_repository_impl.dart';
 
 /* [App Entry] Inicializa o app + Firebase + Supabase + Service Locator. */
 import 'package:firebase_core/firebase_core.dart';
@@ -39,27 +41,13 @@ void main() async {
   runApp(const InDriverApp());
 }
 
-/* [App Entry] Raiz do aplicativo com Provider e MaterialApp.router. */
+/* [App Entry] Raiz do aplicativo com Riverpod e MaterialApp.router. */
 class InDriverApp extends StatelessWidget {
   const InDriverApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
-      /* [App Entry/Providers] Serviços injetados no app. */
-      providers: [
-        ...LocationTrackingDependencies.getProviders(),
-        ChangeNotifierProvider(
-          create: (_) => ChatListProvider(
-            ChatRepositoryImpl(ChatService()),
-          ),
-        ),
-        ChangeNotifierProvider(
-          create: (_) => ChatProvider(
-            ChatRepositoryImpl(ChatService()),
-          ),
-        ),
-      ],
+    return ProviderScope(
       child: MaterialApp.router(
         title: 'InDriver - Defina seu preço!',
         debugShowCheckedModeBanner: false,
@@ -79,18 +67,22 @@ final GoRouter _router = GoRouter(
   initialLocation: '/',
   routes: [
     GoRoute(path: '/', builder: (context, state) => const MainNavigationPage()),
+    GoRoute(path: '/passenger', builder: (context, state) => const PassengerHomePage()),
     // GoRoute(path: '/map', builder: (context, state) => const MapPage()), // [Removed] rota /map
     GoRoute(path: '/rides', builder: (context, state) => const RidesPage()),
     GoRoute(path: '/profile', builder: (context, state) => const ProfilePage()),
+    GoRoute(path: '/edit-profile', builder: (context, state) => const EditProfilePage()),
     GoRoute(path: '/location-tracking', builder: (context, state) => const LocationTrackingScreen()),
-    GoRoute(path: '/chat', builder: (context, state) => const ChatListPage()),
-    GoRoute(
-      path: '/chat/:conversationId',
-      builder: (context, state) {
-        final conversationId = state.pathParameters['conversationId']!;
-        return ChatPage(conversationId: conversationId);
-      },
-    ),
+    GoRoute(path: '/transport-example', builder: (context, state) => const TransportExamplePage()),
+    GoRoute(path: '/confirm-pickup', builder: (context, state) => const ConfirmPickupScreen()),
+    // GoRoute(path: '/chat', builder: (context, state) => const ChatListPage()),
+    // GoRoute(
+    //   path: '/chat/:conversationId',
+    //   builder: (context, state) {
+    //     final conversationId = state.pathParameters['conversationId']!;
+    //     return ChatPage(conversationId: conversationId);
+    //   },
+    // ),
   ],
 );
 
@@ -109,9 +101,10 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   /* [Shell/Pages] Pilha de páginas principais. */
   // [Shell/Pages] Removida MapPage do fluxo principal.
   final List<Widget> _pages = [
-    const HomePage(),
+    const PassengerHomePage(), // Nova tela inicial do passageiro
     const RidesPage(),
-    const ChatListPage(),
+    // const ChatListPage(), // Temporariamente desabilitado
+    const Placeholder(child: Text('Chat em desenvolvimento')),
     const ProfilePage(),
   ];
 

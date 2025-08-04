@@ -96,6 +96,7 @@ dependencies:
   # Utilitários adicionais para tracking
   connectivity_plus: ^5.0.2
   package_info_plus: ^5.0.1
+  shimmer: ^3.0.0
 
 dev_dependencies:
   flutter_test:

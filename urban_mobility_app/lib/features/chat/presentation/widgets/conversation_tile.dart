@@ -1,13 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../data/models/chat_conversation.dart';
-import '../../data/models/chat_participant.dart';
+import '../../domain/models/chat_conversation.dart';
 
 class ConversationTile extends StatelessWidget {
-  final ChatConversation conversation;
-  final String currentUserId;
-  final VoidCallback onTap;
-  final VoidCallback? onLongPress;
 
   const ConversationTile({
     super.key,
@@ -16,6 +11,10 @@ class ConversationTile extends StatelessWidget {
     required this.onTap,
     this.onLongPress,
   });
+  final ChatConversation conversation;
+  final String currentUserId;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {

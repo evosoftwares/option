@@ -11,17 +11,6 @@ enum ConversationType {
 }
 
 class ChatConversation {
-  final String id;
-  final String title;
-  final ConversationType type;
-  final ConversationStatus status;
-  final List<String> participantIds;
-  final String? rideId;
-  final DateTime createdAt;
-  final DateTime updatedAt;
-  final String? lastMessageId;
-  final DateTime? lastMessageAt;
-  final Map<String, dynamic>? metadata;
 
   const ChatConversation({
     required this.id,
@@ -36,6 +25,17 @@ class ChatConversation {
     this.lastMessageAt,
     this.metadata,
   });
+  final String id;
+  final String title;
+  final ConversationType type;
+  final ConversationStatus status;
+  final List<String> participantIds;
+  final String? rideId;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final String? lastMessageId;
+  final DateTime? lastMessageAt;
+  final Map<String, dynamic>? metadata;
 
   ChatConversation copyWith({
     String? id,

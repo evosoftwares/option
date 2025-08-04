@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../data/models/chat_message.dart';
+import '../../domain/models/chat_message.dart';
 
 class MessageBubble extends StatelessWidget {
-  final ChatMessage message;
-  final bool isMe;
-  final bool showSenderName;
 
   const MessageBubble({
     super.key,
@@ -13,6 +10,9 @@ class MessageBubble extends StatelessWidget {
     required this.isMe,
     this.showSenderName = false,
   });
+  final ChatMessage message;
+  final bool isMe;
+  final bool showSenderName;
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +51,7 @@ class MessageBubble extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: isMe 
                           ? Theme.of(context).primaryColor
-                          : Theme.of(context).colorScheme.surfaceVariant,
+                          : Theme.of(context).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.only(
                         topLeft: const Radius.circular(16),
                         topRight: const Radius.circular(16),

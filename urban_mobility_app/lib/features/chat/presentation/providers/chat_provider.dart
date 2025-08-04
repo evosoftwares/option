@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../../domain/repositories/chat_repository.dart';
-import '../../data/models/chat_message.dart';
-import '../../data/models/chat_conversation.dart';
+import '../../domain/models/chat_message.dart';
+import '../../domain/models/chat_conversation.dart';
 
 class ChatProvider extends ChangeNotifier {
-  final ChatRepository _repository;
 
   ChatProvider(this._repository);
+  final ChatRepository _repository;
 
   ChatConversation? _conversation;
   List<ChatMessage> _messages = [];

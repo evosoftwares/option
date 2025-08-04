@@ -21,6 +21,7 @@
 ///
 library;
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 /// Página principal do perfil do usuário.
 class ProfilePage extends StatefulWidget {
@@ -519,21 +520,9 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  /// Placeholder para ação de editar perfil.
+  /// Ação para editar perfil - navega para tela de edição.
   void _editProfile() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Editar Perfil'),
-        content: const Text('Funcionalidade de edição será implementada em breve.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
+    context.push('/edit-profile');
   }
 
   /// Exibe um SnackBar informando que a funcionalidade virá em breve.

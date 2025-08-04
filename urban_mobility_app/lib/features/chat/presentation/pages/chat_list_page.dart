@@ -199,15 +199,15 @@ class _ChatListPageState extends State<ChatListPage> {
 }
 
 class _ConversationOptionsSheet extends StatelessWidget {
-  final ChatConversation conversation;
-  final VoidCallback onArchive;
-  final VoidCallback onDelete;
 
   const _ConversationOptionsSheet({
     required this.conversation,
     required this.onArchive,
     required this.onDelete,
   });
+  final ChatConversation conversation;
+  final VoidCallback onArchive;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {

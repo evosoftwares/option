@@ -14,8 +14,18 @@ class DriverModule {
     // Este método pode ser usado para configurar dependências se necessário
   }
 
-  /// Cria uma instância do repository
+  /// Cria uma instância do repository de forma assíncrona
   static Future<DriverRepository> createRepository() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    return DriverRepositoryImpl(
+      remoteDatasource: DriverRemoteDatasourceFirestore(),
+      localDatasource: DriverLocalDatasourceImpl(prefs),
+    );
+  }
+
+  /// Cria uma instância do repository de forma assíncrona (para casos que precisam)
+  static Future<DriverRepository> createRepositoryAsync() async {
     final prefs = await SharedPreferences.getInstance();
     
     return DriverRepositoryImpl(

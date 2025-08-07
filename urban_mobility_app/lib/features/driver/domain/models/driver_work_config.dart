@@ -70,6 +70,11 @@ class DriverWorkConfig {
     );
   }
 
+  /// Cria instância a partir do Firestore
+  factory DriverWorkConfig.fromFirestore(Map<String, dynamic> data, String id) {
+    return DriverWorkConfig.fromJson(data);
+  }
+
   /// Converte para Firestore
   Map<String, dynamic> toFirestore() {
     return toJson();

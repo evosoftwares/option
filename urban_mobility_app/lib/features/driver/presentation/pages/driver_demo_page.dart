@@ -12,16 +12,37 @@ class DriverDemoPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final repository = DriverModule.createRepository();
+    return FutureBuilder<DriverRepository>(
+      future: DriverModule.createRepository(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
 
-    return MultiProvider(
-      providers: [
-        Provider<DriverRepository>.value(value: repository),
-        ChangeNotifierProvider<DriverMainProvider>(
-          create: (_) => DriverModule.createMainProvider(repository),
-        ),
-      ],
-      child: const DriverMainPage(),
+        if (snapshot.hasError) {
+          return Scaffold(
+            body: Center(
+              child: Text('Erro ao inicializar: ${snapshot.error}'),
+            ),
+          );
+        }
+
+        final repository = snapshot.data!;
+
+        return MultiProvider(
+          providers: [
+            Provider<DriverRepository>.value(value: repository),
+            ChangeNotifierProvider<DriverMainProvider>(
+              create: (_) => DriverModule.createMainProvider(repository),
+            ),
+          ],
+          child: const DriverMainPage(),
+        );
+      },
     );
   }
 }

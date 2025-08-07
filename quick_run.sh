@@ -5,7 +5,17 @@
 
 echo "🚀 Executando Urban Mobility App no Android..."
 
-cd /Users/evosoftwares/option/urban_mobility_app
+# Detectar o diretório do script e do projeto
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR/urban_mobility_app"
+
+# Verificar se o diretório do projeto existe
+if [ ! -d "$PROJECT_DIR" ]; then
+    echo "❌ Diretório do projeto não encontrado: $PROJECT_DIR"
+    exit 1
+fi
+
+cd "$PROJECT_DIR"
 
 # Buscar dispositivo Android (emulador ou físico)
 DEVICE_LINE=$(flutter devices | grep "android" | head -1)

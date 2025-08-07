@@ -8,6 +8,11 @@ echo "🚀 URBAN MOBILITY APP - INICIALIZAÇÃO AUTOMÁTICA"
 echo "================================================"
 echo ""
 
+# Detectar o diretório do script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR/urban_mobility_app"
+QUICK_RUN_SCRIPT="$SCRIPT_DIR/quick_run.sh"
+
 # Verificar se Flutter está instalado
 if ! command -v flutter &> /dev/null; then
     echo "❌ Flutter não encontrado! Instale o Flutter primeiro."
@@ -16,8 +21,14 @@ fi
 
 echo "✅ Flutter encontrado"
 
+# Verificar se o diretório do projeto existe
+if [ ! -d "$PROJECT_DIR" ]; then
+    echo "❌ Diretório do projeto não encontrado: $PROJECT_DIR"
+    exit 1
+fi
+
 # Ir para o diretório do projeto
-cd /Users/evosoftwares/option/urban_mobility_app
+cd "$PROJECT_DIR"
 
 # Verificar se há dispositivos Android
 ANDROID_DEVICES=$(flutter devices | grep "android")
@@ -58,5 +69,11 @@ echo "   R - Hot restart"
 echo "   q - Sair"
 echo ""
 
+# Verificar se o script quick_run.sh existe
+if [ ! -f "$QUICK_RUN_SCRIPT" ]; then
+    echo "❌ Script quick_run.sh não encontrado: $QUICK_RUN_SCRIPT"
+    exit 1
+fi
+
 # Usar o script rápido
-exec ./quick_run.sh
+exec "$QUICK_RUN_SCRIPT"

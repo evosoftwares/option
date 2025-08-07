@@ -126,6 +126,8 @@ class DriverStatusCard extends StatelessWidget {
         return DesignTokens.warningOrange;
       case DriverStatus.onTrip:
         return DesignTokens.primaryBlue;
+      case DriverStatus.busy:
+        return DesignTokens.warningOrange;
       case DriverStatus.suspended:
         return DesignTokens.errorRed;
     }
@@ -141,6 +143,8 @@ class DriverStatusCard extends StatelessWidget {
         return Icons.pause_circle_filled;
       case DriverStatus.onTrip:
         return Icons.directions_car;
+      case DriverStatus.busy:
+        return Icons.hourglass_empty;
       case DriverStatus.suspended:
         return Icons.block;
     }

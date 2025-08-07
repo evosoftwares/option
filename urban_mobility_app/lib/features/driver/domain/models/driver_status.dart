@@ -241,6 +241,25 @@ class DriverStatusHistory {
     );
   }
 
+  /// Cria instância a partir do Firestore
+  factory DriverStatusHistory.fromFirestore(Map<String, dynamic> data, String id) {
+    return DriverStatusHistory(
+      id: id,
+      driverId: data['driverId'] as String,
+      previousStatus: DriverStatus.values.firstWhere(
+        (e) => e.name == data['previousStatus'],
+      ),
+      newStatus: DriverStatus.values.firstWhere(
+        (e) => e.name == data['newStatus'],
+      ),
+      timestamp: DateTime.parse(data['timestamp'] as String),
+      reason: data['reason'] as String?,
+      location: data['location'] != null
+          ? DriverLocation.fromJson(data['location'] as Map<String, dynamic>)
+          : null,
+    );
+  }
+
   /// Converte para Firestore
   Map<String, dynamic> toFirestore() {
     final data = toJson();

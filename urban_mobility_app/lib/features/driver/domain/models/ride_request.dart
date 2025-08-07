@@ -263,6 +263,62 @@ class RideRequest {
       cancellationReason: json['cancellationReason'] as String?,
     );
   }
+
+  /// Cria instância a partir do Firestore
+  factory RideRequest.fromFirestore(Map<String, dynamic> data, String id) {
+    return RideRequest(
+      id: id,
+      passengerId: data['passengerId'] as String,
+      passengerName: data['passengerName'] as String,
+      passengerPhone: data['passengerPhone'] as String,
+      passengerPhoto: data['passengerPhoto'] as String?,
+      passengerRating: (data['passengerRating'] as num?)?.toDouble(),
+      pickupLocation: RideLocation.fromJson(
+        data['pickupLocation'] as Map<String, dynamic>,
+      ),
+      destinationLocation: RideLocation.fromJson(
+        data['destinationLocation'] as Map<String, dynamic>,
+      ),
+      estimatedDistance: (data['estimatedDistance'] as num).toDouble(),
+      estimatedDuration: data['estimatedDuration'] as int,
+      estimatedPrice: (data['estimatedPrice'] as num).toDouble(),
+      vehicleCategory: VehicleCategory.values.firstWhere(
+        (e) => e.name == data['vehicleCategory'],
+      ),
+      specialRequests: data['specialRequests'] != null
+          ? (data['specialRequests'] as List<dynamic>)
+                .map(
+                  (req) => SpecialRequest.fromJson(req as Map<String, dynamic>),
+                )
+                .toList()
+          : null,
+      notes: data['notes'] as String?,
+      status: RideRequestStatus.values.firstWhere(
+        (e) => e.name == data['status'],
+      ),
+      createdAt: DateTime.parse(data['createdAt'] as String),
+      expiresAt: data['expiresAt'] != null
+          ? DateTime.parse(data['expiresAt'] as String)
+          : null,
+      acceptedAt: data['acceptedAt'] != null
+          ? DateTime.parse(data['acceptedAt'] as String)
+          : null,
+      rejectedAt: data['rejectedAt'] != null
+          ? DateTime.parse(data['rejectedAt'] as String)
+          : null,
+      cancelledAt: data['cancelledAt'] != null
+          ? DateTime.parse(data['cancelledAt'] as String)
+          : null,
+      cancellationReason: data['cancellationReason'] as String?,
+    );
+  }
+
+  /// Converte para Firestore
+  Map<String, dynamic> toFirestore() {
+    final data = toJson();
+    data.remove('id'); // ID é gerenciado pelo Firestore
+    return data;
+  }
 }
 
 /// Status da solicitação de viagem

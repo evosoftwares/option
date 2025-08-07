@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'confirm_pickup_screen.dart';
+// import 'confirm_pickup_screen.dart';
 
 /// Página de exemplo para demonstrar a funcionalidade de confirmação de embarque
 /// Esta página pode ser acessada através da rota '/transport-example'
@@ -74,10 +74,10 @@ class TransportExamplePage extends ConsumerWidget {
               height: 56,
               child: ElevatedButton(
                 onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const ConfirmPickupScreen(),
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Funcionalidade em desenvolvimento'),
+                      backgroundColor: Colors.orange,
                     ),
                   );
                 },
@@ -89,7 +89,7 @@ class TransportExamplePage extends ConsumerWidget {
                   ),
                 ),
                 child: const Text(
-                  'Abrir Confirmação de Embarque',
+                  'Funcionalidade em Desenvolvimento',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,

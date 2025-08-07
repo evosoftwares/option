@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:google_places_flutter/model/prediction.dart';
+import 'package:go_router/go_router.dart';
+import 'dart:async';
 
 import '../providers/passenger_map_provider.dart';
-import '../../data/services/address_history_service.dart';
-import '../../domain/models/address_history_item.dart';
-import '../../../../shared/widgets/empty_state.dart';
+import '../components/passenger_bottom_sheet_component.dart';
 
 /// Tela inicial do passageiro com Google Maps real e localização atual
 /// Integra com dados reais de localização e geocodificação
@@ -17,42 +18,19 @@ class PassengerHomePage extends ConsumerStatefulWidget {
   ConsumerState<PassengerHomePage> createState() => _PassengerHomePageState();
 }
 
-class _PassengerHomePageState extends ConsumerState<PassengerHomePage> 
-    with TickerProviderStateMixin {
-  final TextEditingController _searchController = TextEditingController();
-  final DraggableScrollableController _scrollController = DraggableScrollableController();
-  late AnimationController _handleAnimationController;
-  late Animation<double> _handleAnimation;
-
-  // Estados do painel (similar ao Uber)
-  static const double _minChildSize = 0.15; // Estado mínimo - só campo de busca
-  static const double _initialChildSize = 0.25; // Estado inicial
-  static const double _maxChildSize = 0.85; // Estado máximo expandido
+class _PassengerHomePageState extends ConsumerState<PassengerHomePage> {
+  Prediction? _selectedDestination;
+  Timer? _debounceTimer;
 
   @override
   void initState() {
     super.initState();
     _requestLocationPermission();
-    
-    // Configurar animação do handle
-    _handleAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-    _handleAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _handleAnimationController,
-      curve: Curves.easeInOut,
-    ));
   }
 
   @override
   void dispose() {
-    _searchController.dispose();
-    _scrollController.dispose();
-    _handleAnimationController.dispose();
+    _debounceTimer?.cancel();
     super.dispose();
   }
 
@@ -66,28 +44,170 @@ class _PassengerHomePageState extends ConsumerState<PassengerHomePage>
     }
   }
 
-  /// Mostra diálogo de permissão
+  /// Mostra diálogo de permissão melhorado com retry automático
   void _showPermissionDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Permissão de Localização'),
-        content: const Text(
-          'Para uma melhor experiência, permita o acesso à sua localização.',
+      barrierDismissible: false,
+      builder: (context) => Semantics(
+        label: 'Diálogo de permissão de localização',
+        child: AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                Icons.location_on,
+                color: Theme.of(context).primaryColor,
+                size: 24,
+              ),
+              const SizedBox(width: 8),
+              const Text('Permissão de Localização'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Para uma melhor experiência, permita o acesso à sua localização.',
+                style: TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      color: Colors.blue.shade600,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Isso nos ajuda a mostrar sua posição atual e destinos próximos.',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            Semantics(
+              label: 'Cancelar permissão',
+              button: true,
+              child: TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancelar'),
+              ),
+            ),
+            Semantics(
+              label: 'Tentar novamente a permissão',
+              button: true,
+              child: TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  _retryLocationPermission();
+                },
+                child: const Text('Tentar Novamente'),
+              ),
+            ),
+            Semantics(
+              label: 'Abrir configurações do app',
+              button: true,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  openAppSettings();
+                },
+                child: const Text('Configurações'),
+              ),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancelar'),
+      ),
+    );
+  }
+
+  /// Retry automático de permissão de localização
+  Future<void> _retryLocationPermission() async {
+    final status = await Permission.location.request();
+    if (status.isGranted) {
+      // Atualiza a localização após permissão concedida
+      ref.read(passengerMapProvider.notifier).updateCurrentLocation();
+
+      // Mostra feedback positivo
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Localização ativada com sucesso!'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
           ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              openAppSettings();
-            },
-            child: const Text('Configurações'),
+        );
+      }
+    } else if (status.isPermanentlyDenied) {
+      // Mostra diálogo para ir às configurações
+      if (mounted) {
+        _showPermanentlyDeniedDialog();
+      }
+    } else {
+      // Permissão ainda negada, mas não permanentemente
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Permissão de localização necessária para usar o app',
+            ),
+            action: SnackBarAction(
+              label: 'Tentar Novamente',
+              onPressed: _retryLocationPermission,
+            ),
+            duration: const Duration(seconds: 4),
           ),
-        ],
+        );
+      }
+    }
+  }
+
+  /// Diálogo quando permissão foi negada permanentemente
+  void _showPermanentlyDeniedDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => Semantics(
+        label: 'Diálogo de permissão negada permanentemente',
+        child: AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.warning, color: Colors.orange.shade600),
+              const SizedBox(width: 8),
+              const Text('Permissão Negada'),
+            ],
+          ),
+          content: const Text(
+            'A permissão de localização foi negada permanentemente. '
+            'Para usar este recurso, você precisa ativar manualmente nas configurações do seu dispositivo.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Entendi'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                openAppSettings();
+              },
+              child: const Text('Abrir Configurações'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -99,86 +219,225 @@ class _PassengerHomePageState extends ConsumerState<PassengerHomePage>
         children: [
           // Google Maps real
           _buildGoogleMap(),
-          
+
+          // Logotipo no canto superior esquerdo
+          _buildLogo(),
+
           // Botão de localização atual
           _buildCurrentLocationButton(),
-          
+
+          // Botão para acessar sessão do motorista
+          _buildDriverModeButton(),
+
           // Bottom Sheet com interface de busca
-          _buildBottomSheet(),
+          PassengerBottomSheetComponent(
+            onDestinationSelected: (prediction) {
+              setState(() {
+                _selectedDestination = prediction;
+              });
+
+              // Log da seleção (pode ser removido em produção)
+              debugPrint('Destino selecionado: ${prediction.description}');
+              debugPrint('Coordenadas: ${prediction.lat}, ${prediction.lng}');
+            },
+          ),
         ],
       ),
     );
   }
 
-  /// Constrói o Google Maps
+  /// Constrói o Google Maps com lazy loading otimizado
   Widget _buildGoogleMap() {
-    final mapState = ref.watch(passengerMapProvider);
+    return Consumer(
+      builder: (context, ref, child) {
+        // Lazy loading - só acessa o provider quando necessário
+        final cameraPosition = ref.watch(
+          passengerMapProvider.select((state) => state.cameraPosition),
+        );
+        final markers = ref.watch(
+          passengerMapProvider.select((state) => state.markers),
+        );
 
-    return GoogleMap(
-      onMapCreated: (GoogleMapController controller) {
-        ref.read(passengerMapProvider.notifier).setMapController(controller);
-      },
-      initialCameraPosition: mapState.cameraPosition,
-      markers: mapState.markers,
-      myLocationEnabled: true,
-      myLocationButtonEnabled: false,
-      zoomControlsEnabled: false,
-      mapToolbarEnabled: false,
-      compassEnabled: true,
-      trafficEnabled: false,
-      buildingsEnabled: true,
-      indoorViewEnabled: true,
-      mapType: MapType.normal,
-      onTap: (LatLng position) {
-        // Pode adicionar funcionalidade de tap no mapa aqui
+        return GoogleMap(
+          onMapCreated: (GoogleMapController controller) {
+            // Async para não bloquear a UI
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ref
+                  .read(passengerMapProvider.notifier)
+                  .setMapController(controller);
+            });
+          },
+          initialCameraPosition: cameraPosition,
+          markers: markers,
+          myLocationEnabled: true,
+          myLocationButtonEnabled: false,
+          zoomControlsEnabled: false,
+          mapToolbarEnabled: false,
+          compassEnabled: true,
+          trafficEnabled: false,
+          buildingsEnabled: true,
+          indoorViewEnabled: true,
+          mapType: MapType.normal,
+          onTap: (LatLng position) {
+            // Pode adicionar funcionalidade de tap no mapa aqui
+          },
+        );
       },
     );
   }
 
-  /// Constrói o botão de localização atual
+  /// Constrói o botão de localização atual com melhor tratamento de erro
   Widget _buildCurrentLocationButton() {
-    final mapState = ref.watch(passengerMapProvider);
+    return Consumer(
+      builder: (context, ref, child) {
+        // Seletor específico - só reconstrói quando necessário
+        final isLoading = ref.watch(
+          passengerMapProvider.select((state) => state.isLoading),
+        );
+        final error = ref.watch(
+          passengerMapProvider.select((state) => state.error),
+        );
+        final isUpdateInProgress = ref.watch(
+          passengerMapProvider.select(
+            (state) => state.isLocationUpdateInProgress,
+          ),
+        );
 
+        return Positioned(
+          top: MediaQuery.of(context).padding.top + 16,
+          right: 16,
+          child: RepaintBoundary(
+            child: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFFFE),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x0A000000),
+                    blurRadius: 12,
+                    offset: Offset(0, 3),
+                    spreadRadius: 0,
+                  ),
+                ],
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: Semantics(
+                  label: (isLoading || isUpdateInProgress)
+                      ? 'Atualizando localização atual'
+                      : 'Ir para localização atual',
+                  button: true,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: (isLoading || isUpdateInProgress)
+                        ? null
+                        : _updateLocationWithDebounce,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 200),
+                        child: (isLoading || isUpdateInProgress)
+                            ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.blue,
+                                  ),
+                                ),
+                              )
+                            : Icon(
+                                error != null
+                                    ? Icons.location_off
+                                    : Icons.my_location,
+                                color: error != null
+                                    ? Colors.red.shade600
+                                    : Colors.blue,
+                                size: 24,
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Atualiza localização com debounce e retry
+  void _updateLocationWithDebounce() {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+      _updateLocationWithRetry();
+    });
+  }
+
+  /// Atualiza localização com retry automático
+  Future<void> _updateLocationWithRetry() async {
+    try {
+      await ref.read(passengerMapProvider.notifier).updateCurrentLocation();
+
+      // Feedback positivo se sucesso
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Localização atualizada!'),
+            duration: Duration(seconds: 1),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      // Em caso de erro, oferece retry
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Erro ao atualizar localização'),
+            action: SnackBarAction(
+              label: 'Tentar Novamente',
+              onPressed: _updateLocationWithRetry,
+            ),
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Constrói o botão para acessar a sessão do motorista
+  Widget _buildDriverModeButton() {
     return Positioned(
-      top: MediaQuery.of(context).padding.top + 16,
+      top:
+          MediaQuery.of(context).padding.top +
+          80, // Abaixo do botão de localização
       right: 16,
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          boxShadow: [
+          color: Colors.orange.shade600,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: const [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Color(0x1A000000),
               blurRadius: 8,
-              offset: const Offset(0, 2),
+              offset: Offset(0, 2),
+              spreadRadius: 0,
             ),
           ],
         ),
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(8),
-            onTap: mapState.isLoading
-                ? null
-                : () {
-                    ref.read(passengerMapProvider.notifier).updateCurrentLocation();
-                  },
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _navigateToDriverMode(),
             child: Padding(
               padding: const EdgeInsets.all(12),
-              child: mapState.isLoading
-                  ? const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                      ),
-                    )
-                  : const Icon(
-                      Icons.my_location,
-                      color: Colors.blue,
-                      size: 24,
-                    ),
+              child: Icon(Icons.drive_eta, color: Colors.white, size: 24),
             ),
           ),
         ),
@@ -186,376 +445,66 @@ class _PassengerHomePageState extends ConsumerState<PassengerHomePage>
     );
   }
 
-  /// Constrói o bottom sheet scrollable com interface similar ao Uber
-  Widget _buildBottomSheet() {
-    final mapState = ref.watch(passengerMapProvider);
-
-    return DraggableScrollableSheet(
-      controller: _scrollController,
-      initialChildSize: _initialChildSize,
-      minChildSize: _minChildSize,
-      maxChildSize: _maxChildSize,
-      snap: true,
-      snapSizes: const [_minChildSize, _initialChildSize, _maxChildSize],
-      builder: (context, scrollController) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(20),
-              topRight: Radius.circular(20),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black12,
-                blurRadius: 20,
-                offset: Offset(0, -10),
-              ),
-            ],
-          ),
-          child: CustomScrollView(
-            controller: scrollController,
-            slivers: [
-              // Header fixo com handle e campo de busca
-              SliverToBoxAdapter(
-                child: _buildFixedHeader(mapState),
-              ),
-              
-              // Conteúdo scrollable
-              SliverToBoxAdapter(
-                child: _buildScrollableContent(mapState),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+  /// Navega para o modo motorista usando GoRouter
+  void _navigateToDriverMode() {
+    debugPrint('🚗 Navegando para modo motorista...');
+    context.go('/driver');
   }
 
-  /// Constrói o header fixo que sempre aparece (handle + campo de busca)
-  Widget _buildFixedHeader(dynamic mapState) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      child: Column(
-        children: [
-          // Handle animado
-          _buildAnimatedHandle(),
-          
-          const SizedBox(height: 16),
-          
-          // Mensagem de erro se houver (sempre visível)
-          if (mapState.error != null) _buildErrorMessage(mapState.error!),
-          
-          // Campo de busca principal (sempre visível)
-          _buildSearchBar(),
-        ],
-      ),
-    );
-  }
-
-  /// Constrói o conteúdo scrollable que aparece quando expandido
-  Widget _buildScrollableContent(dynamic mapState) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 8),
-          
-          // Informações da localização atual
-          if (mapState.currentLocation != null) 
-            _buildCurrentLocationInfo(mapState.currentLocation!),
-          
-          const SizedBox(height: 16),
-          
-          // Histórico de endereços
-          _buildAddressHistory(),
-          
-          // Espaço extra para scroll
-          const SizedBox(height: 100),
-        ],
-      ),
-    );
-  }
-
-  /// Constrói a mensagem de erro
-  Widget _buildErrorMessage(String error) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.red.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.red.shade200),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.error_outline,
-            color: Colors.red.shade600,
-            size: 20,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              error,
-              style: TextStyle(
-                color: Colors.red.shade700,
-                fontSize: 14,
-              ),
-            ),
-          ),
-          IconButton(
-            onPressed: () {
-              ref.read(passengerMapProvider.notifier).clearError();
-            },
-            icon: Icon(
-              Icons.close,
-              color: Colors.red.shade600,
-              size: 18,
-            ),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Constrói as informações da localização atual
-  Widget _buildCurrentLocationInfo(dynamic currentLocation) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.blue.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.blue.shade200),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.my_location,
-            color: Colors.blue.shade600,
-            size: 20,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Localização atual',
-                  style: TextStyle(
-                    color: Colors.blue.shade700,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                Text(
-                  currentLocation.fullAddress ?? 'Endereço não disponível',
-                  style: TextStyle(
-                    color: Colors.blue.shade800,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Constrói a alça animada do bottom sheet
-  Widget _buildAnimatedHandle() {
-    return AnimatedBuilder(
-      animation: _handleAnimation,
-      builder: (context, child) {
-        return Container(
-          margin: const EdgeInsets.only(top: 8, bottom: 8),
-          width: 48,
-          height: 6,
+  /// Constrói o logotipo no canto superior esquerdo
+  Widget _buildLogo() {
+    return Positioned(
+      top: MediaQuery.of(context).padding.top + 16,
+      left: 16,
+      child: RepaintBoundary(
+        child: Container(
           decoration: BoxDecoration(
-            color: Color.lerp(
-              const Color(0xFFD1D5DB),
-              const Color(0xFF9CA3AF),
-              _handleAnimation.value,
-            ),
-            borderRadius: BorderRadius.circular(3),
+            color: Colors.white.withValues(alpha: 0.95),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0A000000),
+                blurRadius: 12,
+                offset: Offset(0, 3),
+                spreadRadius: 0,
+              ),
+            ],
           ),
-        );
-      },
-    );
-  }
-
-  /// Constrói a barra de pesquisa principal
-  Widget _buildSearchBar() {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFF3F4F6),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.location_on,
-            color: Color(0xFF374151),
-            size: 20,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF1F2937),
-              ),
-              decoration: const InputDecoration(
-                hintText: 'Para onde vamos?',
-                hintStyle: TextStyle(
-                  color: Color(0xFF6B7280),
-                  fontWeight: FontWeight.normal,
-                ),
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Constrói a seção de histórico de endereços
-  Widget _buildAddressHistory() {
-    final addressHistoryService = AddressHistoryService();
-    
-    return StreamBuilder<List<AddressHistoryItem>>(
-      stream: addressHistoryService.getAddressHistory(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(32.0),
-              child: CircularProgressIndicator(),
-            ),
-          );
-        }
-
-        if (snapshot.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Text(
-                'Erro ao carregar histórico: ${snapshot.error}',
-                style: const TextStyle(color: Colors.red),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          );
-        }
-
-        final historyItems = snapshot.data ?? [];
-
-        if (historyItems.isEmpty) {
-          return const EmptyState(
-            title: 'Nenhum local recente',
-            description: 'Seus destinos recentes aparecerão aqui para facilitar o acesso.',
-            icon: Icons.history,
-            padding: EdgeInsets.symmetric(vertical: 32, horizontal: 16),
-          );
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Locais recentes',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF1F2937),
-                fontSize: 16,
-              ),
-            ),
-            const SizedBox(height: 12),
-            ...historyItems.map((item) => _buildHistoryItem(item)),
-          ],
-        );
-      },
-    );
-  }
-
-  /// Constrói um item do histórico de endereços
-  Widget _buildHistoryItem(AddressHistoryItem item) {
-    return InkWell(
-      onTap: () {
-        // TODO: Implementar seleção do endereço do histórico
-        _searchController.text = item.address;
-      },
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: const BoxDecoration(
-                color: Color(0xFFE5E7EB),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.history,
-                color: Color(0xFF374151),
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item.shortName ?? item.address,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF1F2937),
-                      fontSize: 16,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Semantics(
+              label: 'Logotipo Option Brasil Transportes',
+              image: true,
+              child: Image.asset(
+                'assets/images/logo_option.png',
+                height: 40,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  // Fallback em caso de erro ao carregar a imagem
+                  return Container(
+                    height: 40,
+                    width: 120,
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade600,
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (item.shortName != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      item.address,
-                      style: const TextStyle(
-                        color: Color(0xFF6B7280),
-                        fontSize: 14,
+                    child: const Center(
+                      child: Text(
+                        'OPTION',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                  ],
-                ],
+                  );
+                },
               ),
             ),
-            Text(
-              '${item.usageCount}x',
-              style: const TextStyle(
-                color: Color(0xFF9CA3AF),
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
-
-
 }

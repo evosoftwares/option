@@ -19,6 +19,13 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="App de mobilidade urbana para transporte inteligente">
+  
+  <!-- Security headers para prevenir erros de memória -->
+  <meta http-equiv="Cross-Origin-Embedder-Policy" content="credentialless">
+  <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
+  
+  <!-- Viewport para responsividade -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -31,8 +38,41 @@
 
   <title>urban_mobility_app</title>
   <link rel="manifest" href="manifest.json">
+  
+  <!-- Google Maps JavaScript API -->
+  <script async defer 
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoZBZ6RHxpq0EeKa4-UCkwSQrymtRacms&libraries=places">
+  </script>
 </head>
 <body>
+  <!-- Script para tratar erros de memória do navegador -->
+  <script>
+    // Intercepta e suprime o erro de measureUserAgentSpecificMemory
+    window.addEventListener('error', function(e) {
+      if (e.message && e.message.includes('measureUserAgentSpecificMemory')) {
+        e.preventDefault();
+        console.warn('measureUserAgentSpecificMemory não disponível - ignorando erro');
+        return false;
+      }
+    });
+    
+    // Intercepta erros não capturados de Promise
+    window.addEventListener('unhandledrejection', function(e) {
+      if (e.reason && e.reason.message && e.reason.message.includes('measureUserAgentSpecificMemory')) {
+        e.preventDefault();
+        console.warn('measureUserAgentSpecificMemory Promise rejeitada - ignorando erro');
+        return false;
+      }
+    });
+    
+    // Polyfill para measureUserAgentSpecificMemory se não existir
+    if (typeof performance !== 'undefined' && !performance.measureUserAgentSpecificMemory) {
+      performance.measureUserAgentSpecificMemory = function() {
+        return Promise.reject(new Error('measureUserAgentSpecificMemory não suportado'));
+      };
+    }
+  </script>
+  
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

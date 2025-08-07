@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -17,7 +16,7 @@ class PickupLocationState {
 
   const PickupLocationState({
     this.currentLocation,
-    this.currentAddress = "Obtendo localização...",
+    this.currentAddress = 'Obtendo localização...',
     this.isLoadingAddress = false,
     this.isMapMoving = false,
     this.hasLocationPermission = false,

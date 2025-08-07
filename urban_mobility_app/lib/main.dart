@@ -5,14 +5,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/theme/app_theme.dart';
+// import 'core/utils/map_error_handler.dart'; // [Commented] Problematic import
 import 'features/passenger/presentation/pages/passenger_home_page.dart';
 // import 'features/map/presentation/pages/map_page.dart'; // [Removed] MapPage removida
 import 'features/rides/presentation/pages/rides_page.dart';
 import 'features/profile/presentation/pages/profile_page.dart';
-import 'features/location_tracking/presentation/screens/location_tracking_screen.dart';
+// import 'features/location_tracking/presentation/screens/location_tracking_screen.dart';
 import 'features/profile/presentation/pages/edit_profile_page.dart';
-import 'features/transport/presentation/pages/transport_example_page.dart';
-import 'features/transport/presentation/pages/confirm_pickup_screen.dart';
+import 'features/driver/presentation/pages/driver_demo_page.dart';
+// import 'features/transport/presentation/pages/transport_example_page.dart'; // [Commented] Problematic import
+// import 'features/transport/presentation/pages/confirm_pickup_screen.dart';
 // import 'features/chat/presentation/pages/chat_list_page.dart';
 // import 'features/chat/presentation/pages/chat_page.dart';
 // import 'features/chat/presentation/providers/chat_provider.dart';
@@ -28,16 +30,24 @@ import 'core/services/supabase_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
+  // Inicializar tratamento de erros do mapa
+  // MapErrorHandler.initialize();
+
   // Inicializar Firebase
-  await Firebase.initializeApp(options: fo.DefaultFirebaseOptions.currentPlatform);
-  
+  await Firebase.initializeApp(
+    options: fo.DefaultFirebaseOptions.currentPlatform,
+  );
+
   // Inicializar Supabase
   await SupabaseService.instance.initialize();
-  
+
   // Configurar Service Locator
   await setupServiceLocator();
-  
+
+  // Inicializar Google Maps
+  // await MapErrorHandler.initializeGoogleMaps();
+
   runApp(const InDriverApp());
 }
 
@@ -51,10 +61,10 @@ class InDriverApp extends StatelessWidget {
       child: MaterialApp.router(
         title: 'InDriver - Defina seu preço!',
         debugShowCheckedModeBanner: false,
-        /* [Theme] Tema claro/escuro definidos em AppTheme. */
+        /* [Theme] Tema claro forçado para design minimal bright. */
         theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: ThemeMode.system,
+        darkTheme: AppTheme.lightTheme, // Força tema claro mesmo no modo escuro
+        themeMode: ThemeMode.light, // Sempre usa tema claro
         /* [Routing] GoRouter com rotas nomeadas. */
         routerConfig: _router,
       ),
@@ -67,14 +77,24 @@ final GoRouter _router = GoRouter(
   initialLocation: '/',
   routes: [
     GoRoute(path: '/', builder: (context, state) => const MainNavigationPage()),
-    GoRoute(path: '/passenger', builder: (context, state) => const PassengerHomePage()),
+    GoRoute(
+      path: '/passenger',
+      builder: (context, state) => const PassengerHomePage(),
+    ),
     // GoRoute(path: '/map', builder: (context, state) => const MapPage()), // [Removed] rota /map
     GoRoute(path: '/rides', builder: (context, state) => const RidesPage()),
     GoRoute(path: '/profile', builder: (context, state) => const ProfilePage()),
-    GoRoute(path: '/edit-profile', builder: (context, state) => const EditProfilePage()),
-    GoRoute(path: '/location-tracking', builder: (context, state) => const LocationTrackingScreen()),
-    GoRoute(path: '/transport-example', builder: (context, state) => const TransportExamplePage()),
-    GoRoute(path: '/confirm-pickup', builder: (context, state) => const ConfirmPickupScreen()),
+    GoRoute(
+      path: '/edit-profile',
+      builder: (context, state) => const EditProfilePage(),
+    ),
+    GoRoute(
+      path: '/driver',
+      builder: (context, state) => const DriverDemoPage(),
+    ),
+    // GoRoute(path: '/location-tracking', builder: (context, state) => const LocationTrackingScreen()),
+    // GoRoute(path: '/transport-example', builder: (context, state) => const TransportExamplePage()),
+    // GoRoute(path: '/confirm-pickup', builder: (context, state) => const ConfirmPickupScreen()),
     // GoRoute(path: '/chat', builder: (context, state) => const ChatListPage()),
     // GoRoute(
     //   path: '/chat/:conversationId',

@@ -1,8 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
 
+import '../../../../core/utils/map_error_handler.dart';
 import '../../../transport/domain/models/location_data.dart';
 import '../../../transport/domain/repositories/location_repository.dart';
 import '../../../transport/data/repositories/location_repository_impl.dart';
@@ -25,6 +24,8 @@ class PassengerMapState {
       target: LatLng(-23.5505, -46.6333), // São Paulo como padrão
       zoom: 15.0,
     ),
+    this.lastLocationUpdate,
+    this.isLocationUpdateInProgress = false,
   });
   final GoogleMapController? mapController;
   final LocationData? currentLocation;
@@ -32,6 +33,8 @@ class PassengerMapState {
   final String? error;
   final Set<Marker> markers;
   final CameraPosition cameraPosition;
+  final DateTime? lastLocationUpdate;
+  final bool isLocationUpdateInProgress;
 
   PassengerMapState copyWith({
     GoogleMapController? mapController,
@@ -40,6 +43,8 @@ class PassengerMapState {
     String? error,
     Set<Marker>? markers,
     CameraPosition? cameraPosition,
+    DateTime? lastLocationUpdate,
+    bool? isLocationUpdateInProgress,
   }) {
     return PassengerMapState(
       mapController: mapController ?? this.mapController,
@@ -48,6 +53,8 @@ class PassengerMapState {
       error: error,
       markers: markers ?? this.markers,
       cameraPosition: cameraPosition ?? this.cameraPosition,
+      lastLocationUpdate: lastLocationUpdate ?? this.lastLocationUpdate,
+      isLocationUpdateInProgress: isLocationUpdateInProgress ?? this.isLocationUpdateInProgress,
     );
   }
 }
@@ -57,18 +64,63 @@ class PassengerMapNotifier extends StateNotifier<PassengerMapState> {
 
   PassengerMapNotifier(this._locationRepository) : super(const PassengerMapState());
   final LocationRepository _locationRepository;
+  
+  // Cache settings
+  static const Duration _cacheTimeout = Duration(minutes: 2);
+  static const Duration _rateLimitInterval = Duration(seconds: 1);
+  DateTime? _lastLocationRequest;
 
   /// Inicializa o controlador do mapa
   void setMapController(GoogleMapController controller) {
-    state = state.copyWith(mapController: controller);
-    _getCurrentLocation();
+    MapErrorHandler.safeSyncMapOperation(
+      () {
+        state = state.copyWith(mapController: controller);
+        _getCurrentLocation(forceUpdate: false); // Use cache if available
+      },
+      operationName: 'Configuração do controlador do mapa',
+    );
   }
 
-  /// Obtém a localização atual do usuário
-  Future<void> _getCurrentLocation() async {
-    try {
-      state = state.copyWith(isLoading: true, error: null);
+  /// Verifica se a localização em cache ainda é válida
+  bool _isLocationCacheValid() {
+    if (state.lastLocationUpdate == null) return false;
+    final timeSinceUpdate = DateTime.now().difference(state.lastLocationUpdate!);
+    return timeSinceUpdate < _cacheTimeout;
+  }
 
+  /// Verifica rate limiting
+  bool _isRateLimited() {
+    if (_lastLocationRequest == null) return false;
+    final timeSinceRequest = DateTime.now().difference(_lastLocationRequest!);
+    return timeSinceRequest < _rateLimitInterval;
+  }
+
+  /// Obtém a localização atual do usuário com cache e rate limiting
+  Future<void> _getCurrentLocation({bool forceUpdate = false}) async {
+    // Rate limiting check
+    if (!forceUpdate && _isRateLimited()) {
+      return;
+    }
+
+    // Cache check
+    if (!forceUpdate && _isLocationCacheValid() && state.currentLocation != null) {
+      _moveToCurrentLocation();
+      return;
+    }
+
+    // Prevent concurrent requests
+    if (state.isLocationUpdateInProgress) {
+      return;
+    }
+
+    try {
+      state = state.copyWith(
+        isLoading: true, 
+        error: null,
+        isLocationUpdateInProgress: true,
+      );
+      
+      _lastLocationRequest = DateTime.now();
       final locationData = await _locationRepository.getCurrentLocation();
       
       final newCameraPosition = CameraPosition(
@@ -76,57 +128,70 @@ class PassengerMapNotifier extends StateNotifier<PassengerMapState> {
         zoom: 16.0,
       );
 
-      final markers = {
-        Marker(
-          markerId: const MarkerId('current_location'),
-          position: LatLng(locationData.latitude, locationData.longitude),
-          infoWindow: InfoWindow(
-            title: 'Sua localização',
-            snippet: locationData.fullAddress,
-          ),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-        ),
-      };
-
       state = state.copyWith(
         currentLocation: locationData,
         isLoading: false,
-        markers: markers,
         cameraPosition: newCameraPosition,
+        lastLocationUpdate: DateTime.now(),
+        isLocationUpdateInProgress: false,
       );
 
       // Move a câmera para a localização atual
-      if (state.mapController != null) {
-        await state.mapController!.animateCamera(
-          CameraUpdate.newCameraPosition(newCameraPosition),
-        );
-      }
+      await _moveToCurrentLocation();
     } catch (e) {
       state = state.copyWith(
         isLoading: false,
+        isLocationUpdateInProgress: false,
         error: 'Erro ao obter localização: ${e.toString()}',
       );
     }
   }
 
-  /// Atualiza a localização manualmente
-  Future<void> updateCurrentLocation() async {
-    await _getCurrentLocation();
+  /// Move a câmera para a localização atual
+  Future<void> _moveToCurrentLocation() async {
+    if (state.mapController != null && state.currentLocation != null) {
+      await MapErrorHandler.safeMapOperation(
+        () async {
+          final newCameraPosition = CameraPosition(
+            target: LatLng(
+              state.currentLocation!.latitude, 
+              state.currentLocation!.longitude,
+            ),
+            zoom: 16.0,
+          );
+          
+          await state.mapController!.animateCamera(
+            CameraUpdate.newCameraPosition(newCameraPosition),
+          );
+        },
+        operationName: 'Movimento da câmera para localização atual',
+      );
+    }
+  }
+
+  /// Atualiza a localização manualmente com opção de forçar
+  Future<void> updateCurrentLocation({bool forceUpdate = true}) async {
+    await _getCurrentLocation(forceUpdate: forceUpdate);
   }
 
   /// Move a câmera para uma posição específica
   Future<void> moveToLocation(double latitude, double longitude) async {
     if (state.mapController != null) {
-      final newPosition = CameraPosition(
-        target: LatLng(latitude, longitude),
-        zoom: 16.0,
-      );
+      await MapErrorHandler.safeMapOperation(
+        () async {
+          final newPosition = CameraPosition(
+            target: LatLng(latitude, longitude),
+            zoom: 16.0,
+          );
 
-      await state.mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(newPosition),
-      );
+          await state.mapController!.animateCamera(
+            CameraUpdate.newCameraPosition(newPosition),
+          );
 
-      state = state.copyWith(cameraPosition: newPosition);
+          state = state.copyWith(cameraPosition: newPosition);
+        },
+        operationName: 'Movimento da câmera para posição específica',
+      );
     }
   }
 

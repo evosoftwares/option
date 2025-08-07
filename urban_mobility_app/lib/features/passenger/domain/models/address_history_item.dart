@@ -2,13 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Modelo para representar um item do histórico de endereços
 class AddressHistoryItem {
-  final String id;
-  final String address;
-  final String? shortName;
-  final double latitude;
-  final double longitude;
-  final DateTime lastUsed;
-  final int usageCount;
 
   const AddressHistoryItem({
     required this.id,
@@ -36,6 +29,13 @@ class AddressHistoryItem {
       usageCount: data['usageCount'] ?? 1,
     );
   }
+  final String id;
+  final String address;
+  final String? shortName;
+  final double latitude;
+  final double longitude;
+  final DateTime lastUsed;
+  final int usageCount;
 
   /// Converte para dados do Firestore
   Map<String, dynamic> toFirestore() {

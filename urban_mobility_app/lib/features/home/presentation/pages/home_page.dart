@@ -777,9 +777,6 @@ class _SearchFieldCard extends StatelessWidget {
   const _SearchFieldCard({
     required this.hintText,
     required this.prefixIcon,
-    this.suffixIcon,
-    this.onTap,
-    this.readOnly = true,
   });
   final String hintText;
   final Widget prefixIcon;

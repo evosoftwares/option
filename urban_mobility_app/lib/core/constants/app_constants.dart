@@ -1,4 +1,4 @@
- // Arquivo: lib/core/constants/app_constants.dart
+// Arquivo: lib/core/constants/app_constants.dart
  // Propósito: Centralizar constantes de configuração, chaves, limites e recursos do app.
  // Camadas/Dependências: core/constants; consumido por core e features; sem dependências externas.
  // Responsabilidades: Oferecer fonte única de verdade para valores estáticos e padronizações.
@@ -34,6 +34,7 @@
    // API
    static const String baseUrl = 'https://api.indriver.com';
    static const String apiVersion = 'v1';
+   static const String googleMapsApiKey = 'AIzaSyCoZBZ6RHxpq0EeKa4-UCkwSQrymtRacms';
  
    // Validation
    static const int minPasswordLength = 6;

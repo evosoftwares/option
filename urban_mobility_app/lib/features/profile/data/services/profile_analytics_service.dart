@@ -1,5 +1,4 @@
 import 'package:firebase_analytics/firebase_analytics.dart';
-import 'package:flutter/foundation.dart';
 import '../../data/models/user_profile.dart';
 import '../../data/models/profile_draft.dart';
 
@@ -316,7 +315,7 @@ class ProfileAnalyticsService {
   /// Calcula completude do perfil (para KPIs)
   int _calculateProfileCompleteness(UserProfile profile) {
     int score = 0;
-    final int maxScore = 10;
+    const int maxScore = 10;
     
     // Campos básicos (peso 3)
     if (profile.firstName.isNotEmpty) score++;

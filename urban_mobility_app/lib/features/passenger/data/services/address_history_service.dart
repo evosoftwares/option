@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../domain/models/address_history_item.dart';
@@ -39,7 +40,7 @@ class AddressHistoryService {
         .map((snapshot) => snapshot.docs.map((doc) => doc.data()).toList());
   }
 
-  /// Adiciona ou atualiza um endereço no histórico
+  /// Adiciona ou atualiza um endereço no histórico com busca geográfica otimizada
   Future<void> addToHistory({
     required String address,
     required double latitude,
@@ -50,22 +51,40 @@ class AddressHistoryService {
     if (collection == null) return;
 
     try {
-      // Verifica se já existe um endereço similar (mesmo lat/lng com tolerância)
+      // Usar geohash ou índice composto para busca geográfica mais eficiente
+      final geohash = _generateGeohash(latitude, longitude);
+      
+      // Busca por endereços próximos usando geohash (mais eficiente)
       final existingQuery = await collection
-          .where('latitude', isGreaterThan: latitude - 0.001)
-          .where('latitude', isLessThan: latitude + 0.001)
+          .where('geohash', isEqualTo: geohash)
+          .limit(5)
           .get();
 
       AddressHistoryItem? existingItem;
-      for (final doc in existingQuery.docs) {
-        final item = doc.data();
-        final latDiff = (item.latitude - latitude).abs();
-        final lngDiff = (item.longitude - longitude).abs();
-        
-        // Se a diferença for menor que ~100m, considera o mesmo local
-        if (latDiff < 0.001 && lngDiff < 0.001) {
-          existingItem = item;
-          break;
+      
+      // Se não encontrar pelo geohash, faz busca por proximidade
+      if (existingQuery.docs.isEmpty) {
+        final proximityQuery = await collection
+            .where('latitude', isGreaterThan: latitude - 0.001)
+            .where('latitude', isLessThan: latitude + 0.001)
+            .limit(10)
+            .get();
+            
+        for (final doc in proximityQuery.docs) {
+          final item = doc.data();
+          if (_isNearby(latitude, longitude, item.latitude, item.longitude)) {
+            existingItem = item;
+            break;
+          }
+        }
+      } else {
+        // Verifica se algum item do geohash é realmente próximo
+        for (final doc in existingQuery.docs) {
+          final item = doc.data();
+          if (_isNearby(latitude, longitude, item.latitude, item.longitude)) {
+            existingItem = item;
+            break;
+          }
         }
       }
 
@@ -76,6 +95,7 @@ class AddressHistoryService {
           'shortName': shortName,
           'lastUsed': Timestamp.now(),
           'usageCount': FieldValue.increment(1),
+          'geohash': geohash, // Atualiza geohash se necessário
         });
       } else {
         // Cria um novo item
@@ -89,15 +109,33 @@ class AddressHistoryService {
           usageCount: 1,
         );
 
-        await collection.add(newItem);
+        // Adiciona com geohash para busca otimizada
+        final docRef = await collection.add(newItem);
+        await docRef.update({'geohash': geohash});
 
-        // Remove itens antigos se exceder o limite
-        await _cleanupOldItems(collection);
+        // Remove itens antigos se exceder o limite (executa em background)
+        unawaited(_cleanupOldItems(collection));
       }
     } catch (e) {
       print('Erro ao adicionar endereço ao histórico: $e');
       rethrow;
     }
+  }
+
+  /// Gera um geohash simplificado para busca geográfica eficiente
+  String _generateGeohash(double latitude, double longitude) {
+    // Geohash simplificado com precisão de ~1km para agrupamento
+    final latGrid = (latitude * 100).round();
+    final lngGrid = (longitude * 100).round();
+    return '${latGrid}_$lngGrid';
+  }
+
+  /// Verifica se duas coordenadas estão próximas (menos de 100m)
+  bool _isNearby(double lat1, double lng1, double lat2, double lng2) {
+    const threshold = 0.001; // ~100 metros
+    final latDiff = (lat1 - lat2).abs();
+    final lngDiff = (lng1 - lng2).abs();
+    return latDiff < threshold && lngDiff < threshold;
   }
 
   /// Remove itens antigos do histórico mantendo apenas os mais recentes
